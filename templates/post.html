@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Post a deal — Harrison Deals{% endblock %}
+{% block body %}
+  <h1>Post a deal</h1>
+  <p class="sub">Share a Canada Amazon discount. It goes to review (Pending) under your email.</p>
+  {% if error %}<div class="msg err" role="alert">{{ error }}</div>{% endif %}
+  <form class="card" method="post" enctype="multipart/form-data">
+    <label>Product title *
+      <input name="title" required maxlength="200" placeholder="Cabin air filter for Honda Civic…" />
+    </label>
+    <div class="row">
+      <label>ASIN
+        <input name="asin" maxlength="10" placeholder="B0XXXXXXXX" />
+      </label>
+      <label>Department
+        <select name="department">
+          <option value="">Select…</option>
+          {% for d in departments %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <label>Amazon.ca URL
+      <input name="amazon_url" type="url" placeholder="https://www.amazon.ca/dp/…" />
+    </label>
+    <div class="row">
+      <label>Deal price (CAD) *
+        <input name="deal_price" type="number" min="0" step="0.01" required placeholder="19.99" />
+      </label>
+      <label>List / was price
+        <input name="list_price" type="number" min="0" step="0.01" placeholder="34.99" />
+      </label>
+    </div>
+    <label>Cover image <span class="hint">upload preferred — or paste an image URL below</span>
+      <input name="cover" type="file" accept="image/*" />
+    </label>
+    <label>Cover image URL
+      <input name="cover_url" type="url" placeholder="https://…" />
+    </label>
+    <label>One-line buyer note
+      <textarea name="buyer_note" maxlength="500" placeholder="Heard the repair quote and decided to DIY…"></textarea>
+    </label>
+    <button type="submit">Submit deal</button>
+  </form>
+{% endblock %}

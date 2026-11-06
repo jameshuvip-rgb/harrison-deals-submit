@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: harrison-deals-submit
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -b 0.0.0.0:$PORT app:app
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: HD_INBOX_KEY
+        generateValue: true
+      - key: HD_LANDING_URL
+        value: https://cursor.com/canvas/store-c6bc41b9-1220-400b-8a10-1e09699984bc/068db308-d2d0-4aa9-95c1-28fd421e1511
+      - key: HD_PUBLIC_BASE
+        sync: false

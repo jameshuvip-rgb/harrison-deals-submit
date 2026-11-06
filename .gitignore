@@ -1,0 +1,17 @@
+# Local runtime / secrets
+.env
+.env.*
+!.env.example
+data/
+!data/.keep
+uploads/
+!uploads/.keep
+inbox/*.json
+!inbox/.keep
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.log
+.DS_Store
+PUBLIC_URL.txt

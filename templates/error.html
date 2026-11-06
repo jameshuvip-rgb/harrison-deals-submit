@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} — Harrison Deals{% endblock %}
+{% block body %}
+  <h1>{{ code }}</h1>
+  <p class="sub">{{ message }}</p>
+  <p><a class="btn" href="{{ url_for('my_deals') if session.email else url_for('login') }}">Back</a></p>
+{% endblock %}

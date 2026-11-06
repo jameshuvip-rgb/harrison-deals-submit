@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}My deals — Harrison Deals{% endblock %}
+{% block body %}
+  <h1>My deals</h1>
+  <p class="sub">Only deals posted with {{ session.email }} are shown here. Other people’s deals cannot be edited.</p>
+  <div class="card">
+    {% if deals %}
+    <table>
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Price</th>
+          <th>Department</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in deals %}
+        <tr>
+          <td>
+            {{ d.title }}
+            {% if d.asin %}<div class="muted">{{ d.asin }}</div>{% endif %}
+          </td>
+          <td>
+            ${{ '%.2f'|format(d.deal_price) }}
+            {% if d.list_price %}<div class="muted">was ${{ '%.2f'|format(d.list_price) }}</div>{% endif %}
+          </td>
+          <td>{{ d.department or '—' }}</td>
+          <td>
+            <div class="actions">
+              <a class="btn secondary" href="{{ url_for('edit_deal', deal_id=d.id) }}">Edit</a>
+              <form method="post" action="{{ url_for('delete_deal', deal_id=d.id) }}" onsubmit="return confirm('Remove this deal from your list?');">
+                <button class="danger" type="submit">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="empty">No deals yet. <a href="{{ landing_url }}" target="_blank" rel="noopener">Browse the public feed</a> anytime, or <a href="{{ url_for('post_deal') }}">post when you are ready</a>.</p>
+    {% endif %}
+  </div>
+{% endblock %}

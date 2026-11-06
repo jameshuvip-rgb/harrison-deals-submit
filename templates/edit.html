@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Edit deal — Harrison Deals{% endblock %}
+{% block body %}
+  <h1>Edit deal</h1>
+  <p class="sub">Only you can change this listing because it was posted with {{ session.email }}.</p>
+  {% if error %}<div class="msg err" role="alert">{{ error }}</div>{% endif %}
+  <form class="card" method="post" enctype="multipart/form-data">
+    <label>Product title *
+      <input name="title" required maxlength="200" value="{{ deal.title or '' }}" />
+    </label>
+    <div class="row">
+      <label>ASIN
+        <input name="asin" maxlength="10" value="{{ deal.asin or '' }}" />
+      </label>
+      <label>Department
+        <select name="department">
+          <option value="">Select…</option>
+          {% for d in departments %}
+            <option value="{{ d }}" {% if deal.department == d %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <label>Amazon.ca URL
+      <input name="amazon_url" type="url" value="{{ deal.amazon_url or '' }}" />
+    </label>
+    <div class="row">
+      <label>Deal price (CAD) *
+        <input name="deal_price" type="number" min="0" step="0.01" required value="{{ deal.deal_price }}" />
+      </label>
+      <label>List / was price
+        <input name="list_price" type="number" min="0" step="0.01" value="{{ deal.list_price if deal.list_price is not none else '' }}" />
+      </label>
+    </div>
+    <label>Replace cover image <span class="hint">{% if deal.cover_path %}current file: {{ deal.cover_path }}{% else %}optional{% endif %}</span>
+      <input name="cover" type="file" accept="image/*" />
+    </label>
+    <label>Cover image URL
+      <input name="cover_url" type="url" value="{{ deal.cover_url or '' }}" />
+    </label>
+    <label>One-line buyer note
+      <textarea name="buyer_note" maxlength="500">{{ deal.buyer_note or '' }}</textarea>
+    </label>
+    <button type="submit">Save changes</button>
+  </form>
+{% endblock %}

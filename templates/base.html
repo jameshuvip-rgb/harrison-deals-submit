@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>{% block title %}Harrison Deals{% endblock %}</title>
+<style>
+  :root { color-scheme: light; --bg:#f6f7f9; --card:#fff; --ink:#111; --muted:#667085; --line:#e4e7ec; --accent:#111; --ok:#067647; --err:#b42318; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width:640px; margin:0 auto; padding:28px 16px 64px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
+  .brand { font-weight:700; letter-spacing:-0.02em; }
+  .brand a { color:inherit; text-decoration:none; }
+  nav { display:flex; gap:14px; align-items:center; font-size:0.9rem; }
+  nav a { color:#344054; text-decoration:none; }
+  nav a:hover { text-decoration:underline; }
+  nav .who { color:var(--muted); font-size:0.82rem; }
+  h1 { font-size:1.35rem; margin:0 0 6px; letter-spacing:-0.02em; }
+  .sub { color:var(--muted); font-size:0.95rem; margin:0 0 22px; line-height:1.45; }
+  form.card, .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; }
+  form.card { display:grid; gap:14px; }
+  label { display:grid; gap:6px; font-size:0.82rem; font-weight:600; color:#344054; }
+  input, select, textarea { font:inherit; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); }
+  textarea { min-height:84px; resize:vertical; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:520px){ .row { grid-template-columns:1fr; } }
+  .hint { font-weight:500; color:var(--muted); font-size:0.78rem; }
+  button, .btn { appearance:none; border:0; border-radius:999px; background:var(--accent); color:#fff; font-weight:650; padding:12px 18px; cursor:pointer; font-size:0.95rem; text-decoration:none; display:inline-block; text-align:center; }
+  button.secondary, .btn.secondary { background:#fff; color:#111; border:1px solid var(--line); }
+  button.danger { background:#b42318; }
+  button:disabled { opacity:0.55; cursor:wait; }
+  .msg { border-radius:12px; padding:12px 14px; font-size:0.92rem; line-height:1.4; margin:0 0 16px; }
+  .msg.ok { background:#ecfdf3; color:var(--ok); border:1px solid #abefc6; }
+  .msg.err { background:#fef3f2; color:var(--err); border:1px solid #fecdca; }
+  .flash { list-style:none; padding:0; margin:0 0 16px; }
+  .foot { margin-top:14px; color:var(--muted); font-size:0.8rem; }
+  table { width:100%; border-collapse:collapse; font-size:0.92rem; }
+  th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-size:0.75rem; font-weight:650; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .actions form { margin:0; }
+  .empty { color:var(--muted); padding:8px 0; }
+  .muted { color:var(--muted); font-size:0.82rem; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand"><a href="{{ url_for('home') }}">Harrison Deals</a></div>
+      <nav>
+        <a href="{{ landing_url }}" target="_blank" rel="noopener">Browse deals</a>
+        {% if session.email %}
+          <a href="{{ url_for('my_deals') }}">My deals</a>
+          <a href="{{ url_for('post_deal') }}">Post a deal</a>
+          <span class="who">{{ session.email }}</span>
+          <a href="{{ url_for('logout') }}">Log out</a>
+        {% else %}
+          <a href="{{ url_for('login') }}">Log in</a>
+          <a href="{{ url_for('register') }}">Register</a>
+        {% endif %}
+      </nav>
+    </header>
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <ul class="flash">
+          {% for m in messages %}<li class="msg ok">{{ m }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+    {% block body %}{% endblock %}
+    <p class="foot">Harrison Deals · Canada · you can only edit deals you posted</p>
+  </div>
+</body>
+</html>
