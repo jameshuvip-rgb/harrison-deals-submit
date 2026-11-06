@@ -21,6 +21,7 @@
           <td>
             {{ d.title }}
             {% if d.asin %}<div class="muted">{{ d.asin }}</div>{% endif %}
+            {% if d.promo_code %}<div class="muted">Promo {{ d.promo_code }}</div>{% endif %}
           </td>
           <td>
             ${{ '%.2f'|format(d.deal_price) }}

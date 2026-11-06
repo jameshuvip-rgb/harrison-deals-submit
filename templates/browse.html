@@ -94,6 +94,12 @@
   .modal h3 { margin:0 0 6px; font-size:18px; line-height:1.3; }
   .modal .detail { font-size:13px; color:#404040; line-height:1.45; margin:10px 0 14px; }
   .modal-actions { display:flex; flex-wrap:wrap; gap:8px; }
+  .promo-box { margin: 12px 0 4px; padding: 12px; border: 1px dashed #d4d4d4; border-radius: 10px; background: #fafafa; }
+  .promo-box[hidden], .promo-note[hidden] { display: none !important; }
+  .promo-kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; margin-bottom: 6px; }
+  .promo-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .promo-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 18px; font-weight: 800; letter-spacing: 0.04em; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .promo-note { margin-top: 8px; font-size: 12px; color: #525252; line-height: 1.4; }
 
   .live-rail { width: 292px; flex: 0 0 292px; padding: 16px 16px 36px 0; }
   .live-card { position: sticky; top: 14px; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
@@ -144,6 +150,24 @@
 </style>
 </head>
 <body>
+{% macro open_deal_attrs(item) -%}
+data-open-deal
+data-title="{{ item.title|e }}"
+data-line="{{ (item.line or '')|e }}"
+data-detail="{{ (item.detail or item.fit or '')|e }}"
+data-fit="{{ (item.fit or '')|e }}"
+data-price="{{ '%.2f'|format(item.price) }}"
+data-was="{{ '%.2f'|format(item.was) }}"
+data-off="{{ item.off or 0 }}"
+data-badge="{{ (item.badge or '')|e }}"
+data-asof="{{ (item.asOf or '')|e }}"
+data-stale="{{ '1' if item.stale else '0' }}"
+data-image="{{ (item.image or '')|e }}"
+data-amazon="{{ item.amazon_url|e }}"
+data-promo-code="{{ (item.promo_code or '')|e }}"
+data-code-note="{{ (item.code_note or '')|e }}"
+data-id="{{ item.id|e }}"
+{%- endmacro %}
   <header class="site-header">
     <div class="top">
       <a class="brand" href="{{ url_for('home') }}">
@@ -226,21 +250,7 @@
                 </div>
               </div>
               {% endif %}
-              <div class="feat-card" role="button" tabindex="0"
-                   data-open-deal
-                   data-title="{{ f.title|e }}"
-                   data-line="{{ (f.line or '')|e }}"
-                   data-detail="{{ (f.detail or f.fit or '')|e }}"
-                   data-fit="{{ (f.fit or '')|e }}"
-                   data-price="{{ '%.2f'|format(f.price) }}"
-                   data-was="{{ '%.2f'|format(f.was) }}"
-                   data-off="{{ f.off or 0 }}"
-                   data-badge="{{ (f.badge or '')|e }}"
-                   data-asof="{{ (f.asOf or '')|e }}"
-                   data-stale="{{ '1' if f.stale else '0' }}"
-                   data-image="{{ (f.image or '')|e }}"
-                   data-amazon="{{ f.amazon_url|e }}"
-                   data-id="{{ f.id|e }}">
+              <div class="feat-card" role="button" tabindex="0" {{ open_deal_attrs(f) }}>
                 <div class="thumb"><img src="{{ f.image }}" alt="{{ f.title }}" loading="lazy"/></div>
                 <div class="copy">
                   <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">
@@ -287,21 +297,7 @@
                 </div>
               </div>
               {% endif %}
-              <div class="card" role="button" tabindex="0"
-                   data-open-deal
-                   data-title="{{ d.title|e }}"
-                   data-line="{{ (d.line or '')|e }}"
-                   data-detail="{{ (d.detail or d.fit or '')|e }}"
-                   data-fit="{{ (d.fit or '')|e }}"
-                   data-price="{{ '%.2f'|format(d.price) }}"
-                   data-was="{{ '%.2f'|format(d.was) }}"
-                   data-off="{{ d.off or 0 }}"
-                   data-badge="{{ (d.badge or '')|e }}"
-                   data-asof="{{ (d.asOf or '')|e }}"
-                   data-stale="{{ '1' if d.stale else '0' }}"
-                   data-image="{{ (d.image or '')|e }}"
-                   data-amazon="{{ d.amazon_url|e }}"
-                   data-id="{{ d.id|e }}">
+              <div class="card" role="button" tabindex="0" {{ open_deal_attrs(d) }}>
                 <div class="card-top">
                   <span>{% if d.badge %}<span class="pill">{{ d.badge }}</span>{% endif %}</span>
                 </div>
@@ -342,21 +338,7 @@
           <div class="live-track">
             {% for pass in [1, 2] %}
               {% for a in live_activity %}
-                <button type="button" class="live-row"
-                   data-open-deal
-                   data-title="{{ a.title|e }}"
-                   data-line="{{ (a.line or '')|e }}"
-                   data-detail="{{ (a.detail or a.fit or '')|e }}"
-                   data-fit="{{ (a.fit or '')|e }}"
-                   data-price="{{ '%.2f'|format(a.price) }}"
-                   data-was="{{ '%.2f'|format(a.was) }}"
-                   data-off="{{ a.off or 0 }}"
-                   data-badge="{{ (a.badge or '')|e }}"
-                   data-asof="{{ (a.asOf or '')|e }}"
-                   data-stale="{{ '1' if a.stale else '0' }}"
-                   data-image="{{ (a.image or '')|e }}"
-                   data-amazon="{{ a.amazon_url|e }}"
-                   data-id="{{ a.id|e }}">
+                <button type="button" class="live-row" {{ open_deal_attrs(a) }}>
                   <span class="t">{% if a.image %}<img src="{{ a.image }}" alt="" loading="lazy"/>{% endif %}</span>
                   <span class="meta">
                     <span class="ev">{% if a.is_new %}<span class="new" aria-hidden="true"></span>{% endif %}{{ a.event }}</span>
@@ -395,6 +377,14 @@
           <span class="pill" id="mOff" style="margin-left:4px;"></span>
         </div>
         <div class="asof" id="mAsof"></div>
+        <div class="promo-box" id="mPromo" hidden>
+          <div class="promo-kicker">Promo code</div>
+          <div class="promo-row">
+            <span class="promo-code" id="mPromoCode"></span>
+            <button type="button" class="btn sm" id="mCopyCode">Copy code</button>
+          </div>
+          <div class="promo-note" id="mPromoNote" hidden></div>
+        </div>
         <div class="detail" id="mDetail"></div>
         <div class="modal-actions">
           <button type="button" class="btn ghost" id="mCopy">Copy share link</button>
@@ -441,7 +431,36 @@
   var mBadges = document.getElementById('mBadges');
   var mAmazon = document.getElementById('mAmazon');
   var mCopy = document.getElementById('mCopy');
+  var mPromo = document.getElementById('mPromo');
+  var mPromoCode = document.getElementById('mPromoCode');
+  var mPromoNote = document.getElementById('mPromoNote');
+  var mCopyCode = document.getElementById('mCopyCode');
   var currentId = '';
+  var currentCode = '';
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) resolve();
+        else reject(new Error('copy failed'));
+      } catch (err) {
+        document.body.removeChild(ta);
+        reject(err);
+      }
+    });
+  }
 
   function openDeal(el) {
     currentId = el.getAttribute('data-id') || '';
@@ -462,6 +481,20 @@
     var img = el.getAttribute('data-image') || '';
     mThumb.innerHTML = img ? '<img src="' + img.replace(/"/g,'') + '" alt=""/>' : '';
     mAmazon.href = el.getAttribute('data-amazon') || '#';
+    currentCode = (el.getAttribute('data-promo-code') || '').trim();
+    var note = (el.getAttribute('data-code-note') || '').trim();
+    mCopyCode.textContent = 'Copy code';
+    if (currentCode) {
+      mPromo.hidden = false;
+      mPromoCode.textContent = currentCode;
+      mPromoNote.hidden = !note;
+      mPromoNote.textContent = note;
+    } else {
+      mPromo.hidden = true;
+      mPromoCode.textContent = '';
+      mPromoNote.hidden = true;
+      mPromoNote.textContent = '';
+    }
     modal.classList.add('open');
     modal.setAttribute('aria-hidden', 'false');
   }
@@ -490,14 +523,21 @@
   });
   mCopy.addEventListener('click', function () {
     var url = location.origin + location.pathname + '?q=' + encodeURIComponent(currentId || mTitle.textContent || '');
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(function () {
-        mCopy.textContent = 'Copied!';
-        setTimeout(function () { mCopy.textContent = 'Copy share link'; }, 1200);
-      });
-    } else {
-      prompt('Copy this link', url);
-    }
+    copyText(url).then(function () {
+      mCopy.textContent = 'Copied!';
+      setTimeout(function () { mCopy.textContent = 'Copy share link'; }, 1200);
+    }).catch(function () {
+      window.prompt('Copy this link', url);
+    });
+  });
+  mCopyCode.addEventListener('click', function () {
+    if (!currentCode) return;
+    copyText(currentCode).then(function () {
+      mCopyCode.textContent = 'Copied!';
+      setTimeout(function () { mCopyCode.textContent = 'Copy code'; }, 1200);
+    }).catch(function () {
+      window.prompt('Copy this code', currentCode);
+    });
   });
 })();
 </script>

@@ -32,6 +32,14 @@
         <input name="list_price" type="number" min="0" step="0.01" value="{{ deal.list_price if deal.list_price is not none else '' }}" />
       </label>
     </div>
+    <div class="row">
+      <label>Promo code <span class="hint">optional</span>
+        <input name="promo_code" maxlength="32" value="{{ deal.promo_code or '' }}" placeholder="SAVE20" autocapitalize="characters" spellcheck="false" />
+      </label>
+      <label>Code note <span class="hint">optional, e.g. Enter at checkout</span>
+        <input name="code_note" maxlength="120" value="{{ deal.code_note or '' }}" placeholder="Enter at checkout" />
+      </label>
+    </div>
     <label>Replace cover image <span class="hint">{% if deal.cover_path %}current file: {{ deal.cover_path }}{% else %}optional{% endif %}</span>
       <input name="cover" type="file" accept="image/*" />
     </label>

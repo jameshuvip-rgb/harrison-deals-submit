@@ -48,6 +48,8 @@ INBOX_KEY = (os.environ.get("HD_INBOX_KEY") or "").strip()
 DEPTS = ["Automotive", "Home", "Sports", "Electronics", "Tools", "Pets", "Other"]
 ASIN_RE = re.compile(r"^[A-Z0-9]{10}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+PROMO_CODE_RE = re.compile(r"^[A-Z0-9](?:[A-Z0-9_-]{0,31})$")
+CODE_NOTE_MAX = 120
 COVER_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 for d in (DATA, INBOX, UPLOADS):
@@ -152,6 +154,20 @@ def off_pct(price: float, was: float) -> int:
     return round(((was - price) / was) * 100)
 
 
+def deal_badge(deal: dict, pct: int) -> str:
+    """Card-face label. A coupon is `CODE`, never the full code string."""
+    code = str(deal.get("promo_code") or "").strip()
+    if code:
+        if pct:
+            return f"CODE · {pct}% OFF"
+        return "CODE"
+    if deal.get("promo") == "bxgy":
+        return f"BXGY ~{pct or 30}%"
+    if pct:
+        return f"{pct}% OFF"
+    return ""
+
+
 def amazon_href(deal: dict) -> str:
     asin = str(deal.get("id") or "")
     base = str(deal.get("href") or f"https://www.amazon.ca/dp/{asin}")
@@ -176,14 +192,11 @@ def enrich_deal(deal: dict) -> dict:
     out["price"] = price
     out["was"] = was
     out["off"] = pct
+    out["promo_code"] = str(deal.get("promo_code") or "").strip()
+    out["code_note"] = str(deal.get("code_note") or "").strip()
     out["amazon_url"] = amazon_href(deal)
     out["initials"] = deal_initials(deal.get("title") or "")
-    if deal.get("promo") == "bxgy":
-        out["badge"] = f"BXGY ~{pct or 30}%"
-    elif pct:
-        out["badge"] = f"{pct}% OFF"
-    else:
-        out["badge"] = ""
+    out["badge"] = deal_badge(out, pct)
     out.setdefault("source", "seed")
     out.setdefault("owner_email", None)
     out.setdefault("db_id", None)
@@ -249,6 +262,9 @@ def user_deal_to_card(row: sqlite3.Row) -> dict:
         as_of = ""
         posted = deal_id
     note = (row["buyer_note"] or "").strip()
+    keys = set(row.keys())
+    promo_code = (row["promo_code"] or "").strip() if "promo_code" in keys else ""
+    code_note = (row["code_note"] or "").strip() if "code_note" in keys else ""
     return {
         "id": card_id,
         "source": "user",
@@ -261,6 +277,8 @@ def user_deal_to_card(row: sqlite3.Row) -> dict:
         "was": was,
         "fit": dept or "",
         "detail": note or "",
+        "promo_code": promo_code,
+        "code_note": code_note,
         "href": href,
         "live": True,
         "promo": "percent",
@@ -406,6 +424,8 @@ def build_live_activity(merged: list[dict], limit: int = 16) -> list[dict]:
                 "stale": bool(deal.get("stale")),
                 "image": deal.get("image") or "",
                 "amazon_url": deal.get("amazon_url") or "#",
+                "promo_code": str(deal.get("promo_code") or "").strip(),
+                "code_note": str(deal.get("code_note") or "").strip(),
                 "rel_time": relative_time_label(deal),
                 "event": event,
                 "is_new": is_new,
@@ -497,6 +517,8 @@ def init_db() -> None:
             cover_path TEXT,
             cover_url TEXT,
             notion_hint TEXT,
+            promo_code TEXT,
+            code_note TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             deleted_at TEXT
@@ -504,8 +526,18 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_deals_owner ON deals(owner_email);
         """
     )
+    ensure_deal_columns(db)
     db.commit()
     db.close()
+
+
+def ensure_deal_columns(db: sqlite3.Connection) -> None:
+    """Add coupon columns on databases created before promo codes existed."""
+    cols = {row[1] for row in db.execute("PRAGMA table_info(deals)")}
+    if "promo_code" not in cols:
+        db.execute("ALTER TABLE deals ADD COLUMN promo_code TEXT")
+    if "code_note" not in cols:
+        db.execute("ALTER TABLE deals ADD COLUMN code_note TEXT")
 
 
 init_db()
@@ -548,6 +580,26 @@ def parse_price(raw: str, label: str, required: bool = False):
         raise ValueError(f"{label} must be a number") from exc
 
 
+def normalize_promo_code(raw: str) -> str | None:
+    code = re.sub(r"\s+", "", (raw or "")).upper()
+    if not code:
+        return None
+    if not PROMO_CODE_RE.fullmatch(code):
+        raise ValueError(
+            "Promo code must be 1–32 letters, digits, hyphens, or underscores"
+        )
+    return code
+
+
+def normalize_code_note(raw: str) -> str | None:
+    note = (raw or "").strip()
+    if not note:
+        return None
+    if len(note) > CODE_NOTE_MAX:
+        raise ValueError("Code note is too long")
+    return note
+
+
 def parse_deal_fields(src) -> dict:
     title = (src.get("title") or "").strip()
     if not title:
@@ -571,6 +623,8 @@ def parse_deal_fields(src) -> dict:
     if buyer_note and len(buyer_note) > 500:
         raise ValueError("Buyer note is too long")
     cover_url = (src.get("cover_url") or "").strip() or None
+    promo_code = normalize_promo_code(src.get("promo_code") or "")
+    code_note = normalize_code_note(src.get("code_note") or "")
 
     return {
         "title": title,
@@ -581,6 +635,8 @@ def parse_deal_fields(src) -> dict:
         "department": department or None,
         "buyer_note": buyer_note,
         "cover_url": cover_url,
+        "promo_code": promo_code,
+        "code_note": code_note,
     }
 
 
@@ -601,6 +657,15 @@ def save_cover(user_id: int):
     return f"{user_id}/{name}"
 
 
+def _deal_value(deal: sqlite3.Row | dict, key: str, default=None):
+    if hasattr(deal, "keys") and key not in deal.keys():
+        return default
+    try:
+        return deal[key]
+    except (KeyError, IndexError):
+        return default
+
+
 def write_inbox(action: str, deal: sqlite3.Row | dict) -> str:
     event_id = str(uuid.uuid4())
     cover_path = deal["cover_path"]
@@ -618,6 +683,8 @@ def write_inbox(action: str, deal: sqlite3.Row | dict) -> str:
         "list_price": deal["list_price"],
         "department": deal["department"],
         "buyer_note": deal["buyer_note"],
+        "promo_code": _deal_value(deal, "promo_code"),
+        "code_note": _deal_value(deal, "code_note"),
         "submitter": deal["owner_email"],
         "cover_url": cover_url,
         "cover_path": cover_path,
@@ -702,6 +769,7 @@ def home():
             or needle in str(d.get("fit") or "").lower()
             or needle in str(d.get("id") or "").lower()
             or needle in str(d.get("detail") or "").lower()
+            or needle in str(d.get("promo_code") or "").lower()
         ]
     feed = sort_feed(feed, sort)
     feed = attach_manage_flags(feed)
@@ -817,9 +885,9 @@ def post_deal():
                 """
                 INSERT INTO deals (
                     owner_email, title, asin, amazon_url, deal_price, list_price,
-                    department, buyer_note, cover_path, cover_url, notion_hint,
-                    created_at, updated_at, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    department, buyer_note, promo_code, code_note, cover_path, cover_url,
+                    notion_hint, created_at, updated_at, deleted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                 """,
                 (
                     current_email(),
@@ -830,6 +898,8 @@ def post_deal():
                     fields["list_price"],
                     fields["department"],
                     fields["buyer_note"],
+                    fields["promo_code"],
+                    fields["code_note"],
                     cover_path,
                     cover_url,
                     None,
@@ -900,7 +970,8 @@ def edit_deal(deal_id: int):
                 """
                 UPDATE deals SET
                     title=?, asin=?, amazon_url=?, deal_price=?, list_price=?,
-                    department=?, buyer_note=?, cover_path=?, cover_url=?, updated_at=?
+                    department=?, buyer_note=?, promo_code=?, code_note=?,
+                    cover_path=?, cover_url=?, updated_at=?
                 WHERE id=? AND deleted_at IS NULL
                 """,
                 (
@@ -911,6 +982,8 @@ def edit_deal(deal_id: int):
                     fields["list_price"],
                     fields["department"],
                     fields["buyer_note"],
+                    fields["promo_code"],
+                    fields["code_note"],
                     cover_path,
                     cover_url,
                     now,
@@ -987,6 +1060,8 @@ def edit_seed_deal(seed_id: str):
             try:
                 price = parse_price(request.form.get("deal_price"), "Deal price", required=True)
                 was = parse_price(request.form.get("list_price"), "List price")
+                promo_code = normalize_promo_code(request.form.get("promo_code") or "")
+                code_note = normalize_code_note(request.form.get("code_note") or "")
             except ValueError as exc:
                 error = str(exc)
             else:
@@ -1001,6 +1076,8 @@ def edit_seed_deal(seed_id: str):
                     "category": (request.form.get("category") or current.get("category") or "").strip().lower(),
                     "image": (request.form.get("cover_url") or current.get("image") or "").strip() or current.get("image"),
                     "asOf": (request.form.get("as_of") or current.get("asOf") or "").strip(),
+                    "promo_code": promo_code or "",
+                    "code_note": code_note or "",
                     "live": True,
                 }
                 overrides[seed_id] = {**(overrides.get(seed_id) or {}), **{k: v for k, v in patch.items() if v is not None}}
@@ -1024,6 +1101,8 @@ def edit_seed_deal(seed_id: str):
         "fit": current.get("fit") or "",
         "category": current.get("category") or "",
         "asOf": current.get("asOf") or "",
+        "promo_code": current.get("promo_code") or "",
+        "code_note": current.get("code_note") or "",
     }
     return render_template(
         "edit_seed.html",
@@ -1158,9 +1237,9 @@ def api_submit():
         """
         INSERT INTO deals (
             owner_email, title, asin, amazon_url, deal_price, list_price,
-            department, buyer_note, cover_path, cover_url, notion_hint,
-            created_at, updated_at, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            department, buyer_note, promo_code, code_note, cover_path, cover_url,
+            notion_hint, created_at, updated_at, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
         """,
         (
             current_email(),
@@ -1171,6 +1250,8 @@ def api_submit():
             fields["list_price"],
             fields["department"],
             fields["buyer_note"],
+            fields["promo_code"],
+            fields["code_note"],
             cover_path,
             cover_url,
             None,
