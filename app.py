@@ -54,6 +54,19 @@ for d in (DATA, INBOX, UPLOADS):
     d.mkdir(parents=True, exist_ok=True)
 
 SEED_DEALS_PATH = ROOT / "deals.json"
+DELETED_SEED_PATH = DATA / "deleted_seed_ids.json"
+SEED_OVERRIDES_PATH = DATA / "seed_overrides.json"
+DEFAULT_ADMIN_EMAIL = "jameshuvip@gmail.com"
+
+DEPT_TO_CAT = {
+    "Automotive": "automotive",
+    "Home": "home",
+    "Sports": "sports",
+    "Electronics": "electronics",
+    "Tools": "tools",
+    "Pets": "pets",
+    "Other": "other",
+}
 
 NAV_CATS = [
     {"id": "all", "label": "All", "icon": "◎", "blurb": "Every live deal"},
@@ -78,6 +91,59 @@ def load_seed_deals() -> list[dict]:
     if not isinstance(raw, list):
         return []
     return [d for d in raw if isinstance(d, dict)]
+
+
+def _read_json_file(path: Path, default):
+    if not path.exists():
+        return default
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return default
+    return raw if isinstance(raw, type(default)) else default
+
+
+def load_deleted_seed_ids() -> set[str]:
+    raw = _read_json_file(DELETED_SEED_PATH, [])
+    return {str(x) for x in raw if x is not None}
+
+
+def save_deleted_seed_ids(ids: set[str]) -> None:
+    DELETED_SEED_PATH.write_text(
+        json.dumps(sorted(ids), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def load_seed_overrides() -> dict:
+    raw = _read_json_file(SEED_OVERRIDES_PATH, {})
+    return {str(k): v for k, v in raw.items() if isinstance(v, dict)}
+
+
+def save_seed_overrides(overrides: dict) -> None:
+    SEED_OVERRIDES_PATH.write_text(
+        json.dumps(overrides, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def apply_seed_overlay(deals: list[dict]) -> list[dict]:
+    deleted = load_deleted_seed_ids()
+    overrides = load_seed_overrides()
+    out = []
+    for deal in deals:
+        sid = str(deal.get("id") or "")
+        if not sid or sid in deleted:
+            continue
+        item = dict(deal)
+        if sid in overrides:
+            item.update(overrides[sid])
+            item["id"] = sid
+        item["source"] = "seed"
+        item["owner_email"] = item.get("owner_email")
+        item["db_id"] = None
+        out.append(item)
+    return out
 
 
 def off_pct(price: float, was: float) -> int:
@@ -118,8 +184,180 @@ def enrich_deal(deal: dict) -> dict:
         out["badge"] = f"{pct}% OFF"
     else:
         out["badge"] = ""
+    out.setdefault("source", "seed")
+    out.setdefault("owner_email", None)
+    out.setdefault("db_id", None)
+    out.setdefault("can_manage", False)
+    out.setdefault("manage_url", None)
+    out.setdefault("delete_url", None)
     return out
 
+
+def admin_emails() -> set[str]:
+    raw = (os.environ.get("HD_ADMIN_EMAILS") or "").strip()
+    if not raw:
+        return {DEFAULT_ADMIN_EMAIL}
+    emails = {normalize_email(e) for e in raw.split(",") if e.strip()}
+    return emails or {DEFAULT_ADMIN_EMAIL}
+
+
+def is_admin() -> bool:
+    email = current_email()
+    return bool(email) and email in admin_emails()
+
+
+def can_manage_owner(owner_email: str | None) -> bool:
+    email = current_email()
+    if not email:
+        return False
+    if is_admin():
+        return True
+    return bool(owner_email) and email == normalize_email(owner_email)
+
+
+def can_manage_deal(row) -> bool:
+    if row is None:
+        return False
+    if hasattr(row, "keys"):
+        owner = row["owner_email"] if "owner_email" in row.keys() else None
+    else:
+        owner = row.get("owner_email")
+    return can_manage_owner(owner)
+
+
+def user_deal_to_card(row: sqlite3.Row) -> dict:
+    dept = (row["department"] or "").strip()
+    cat = DEPT_TO_CAT.get(dept, (dept or "other").lower())
+    asin = (row["asin"] or "").strip().upper()
+    deal_id = int(row["id"])
+    card_id = asin or f"u{deal_id}"
+    price = float(row["deal_price"] or 0)
+    was = float(row["list_price"] or 0) or price
+    href = (row["amazon_url"] or "").strip() or (f"https://www.amazon.ca/dp/{asin}" if asin else "#")
+    image = (row["cover_url"] or "").strip() or None
+    if not image and row["cover_path"]:
+        image = f"/uploads/{row['cover_path']}"
+    as_of = ""
+    posted = 0
+    try:
+        ts = row["updated_at"] or row["created_at"] or ""
+        if ts:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            as_of = dt.strftime("%b ") + str(dt.day)
+            posted = int(dt.timestamp())
+    except Exception:
+        as_of = ""
+        posted = deal_id
+    note = (row["buyer_note"] or "").strip()
+    return {
+        "id": card_id,
+        "source": "user",
+        "db_id": deal_id,
+        "owner_email": row["owner_email"],
+        "category": cat,
+        "title": row["title"],
+        "line": note or dept or "",
+        "price": price,
+        "was": was,
+        "fit": dept or "",
+        "detail": note or "",
+        "href": href,
+        "live": True,
+        "promo": "percent",
+        "ago": "",
+        "posted": posted,
+        "asOf": as_of,
+        "featured": False,
+        "image": image,
+        "stale": False,
+    }
+
+
+def load_user_deal_cards() -> list[dict]:
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT * FROM deals
+        WHERE deleted_at IS NULL
+        ORDER BY datetime(updated_at) DESC, id DESC
+        """
+    ).fetchall()
+    return [user_deal_to_card(r) for r in rows]
+
+
+def attach_manage_flags(deals: list[dict]) -> list[dict]:
+    admin = is_admin()
+    email = current_email()
+    out = []
+    for deal in deals:
+        item = dict(deal)
+        source = item.get("source") or "seed"
+        owner = item.get("owner_email")
+        if source == "user" and item.get("db_id"):
+            can = bool(email) and (admin or (owner and email == normalize_email(owner)))
+            item["can_manage"] = can
+            if can:
+                item["manage_url"] = url_for("edit_deal", deal_id=int(item["db_id"]))
+                item["delete_url"] = url_for("delete_deal", deal_id=int(item["db_id"]))
+            else:
+                item["manage_url"] = None
+                item["delete_url"] = None
+        else:
+            # seed: only admins
+            can = admin
+            item["can_manage"] = can
+            if can:
+                sid = str(item.get("id") or "")
+                item["manage_url"] = url_for("edit_seed_deal", seed_id=sid)
+                item["delete_url"] = url_for("delete_seed_deal", seed_id=sid)
+            else:
+                item["manage_url"] = None
+                item["delete_url"] = None
+        out.append(item)
+    return out
+
+
+def has_real_image(deal: dict) -> bool:
+    img = str(deal.get("image") or "").strip()
+    return bool(img) and not img.startswith("data:")
+
+
+def pick_featured(feed: list[dict], limit: int = 3) -> list[dict]:
+    with_img = [d for d in feed if has_real_image(d)]
+    featured = [d for d in with_img if d.get("featured")]
+    if len(featured) >= limit:
+        return featured[:limit]
+    seen = {str(d.get("id")) for d in featured}
+    for d in with_img:
+        if str(d.get("id")) in seen:
+            continue
+        featured.append(d)
+        seen.add(str(d.get("id")))
+        if len(featured) >= limit:
+            break
+    return featured[:limit]
+
+
+def sort_feed(feed: list[dict], sort: str) -> list[dict]:
+    sort = (sort or "latest").strip().lower()
+    if sort == "off":
+        return sorted(feed, key=lambda d: int(d.get("off") or 0), reverse=True)
+    if sort == "price":
+        return sorted(feed, key=lambda d: float(d.get("price") or 0))
+    # latest (default)
+    return sorted(feed, key=lambda d: int(d.get("posted") or 0), reverse=True)
+
+
+def visible_nav_cats(counts: dict) -> list[dict]:
+    """Keep All + categories with ≥1 live deal; hide empty Soon slots."""
+    out = []
+    for cat in NAV_CATS:
+        if cat["id"] == "all":
+            out.append(cat)
+            continue
+        if int(counts.get(cat["id"], 0) or 0) > 0:
+            out.append(cat)
+    return out
 
 
 
@@ -150,7 +388,11 @@ app.config["SESSION_COOKIE_SECURE"] = PUBLIC_BASE.startswith("https://")
 
 @app.context_processor
 def inject_globals():
-    return {"landing_url": LANDING_URL}
+    return {
+        "landing_url": LANDING_URL,
+        "session_email": current_email(),
+        "is_admin": is_admin(),
+    }
 
 
 def utc_now() -> str:
@@ -331,11 +573,22 @@ def write_inbox(action: str, deal: sqlite3.Row | dict) -> str:
 
 
 def get_own_deal(deal_id: int) -> sqlite3.Row:
+    """Owner-only fetch (legacy). Prefer get_manageable_deal for edit/delete."""
     db = get_db()
     row = db.execute("SELECT * FROM deals WHERE id = ?", (deal_id,)).fetchone()
     if row is None:
         abort(404)
     if row["owner_email"] != current_email():
+        abort(403)
+    return row
+
+
+def get_manageable_deal(deal_id: int) -> sqlite3.Row:
+    db = get_db()
+    row = db.execute("SELECT * FROM deals WHERE id = ?", (deal_id,)).fetchone()
+    if row is None:
+        abort(404)
+    if not can_manage_deal(row):
         abort(403)
     return row
 
@@ -352,13 +605,33 @@ def wants_json() -> bool:
 def home():
     cat = (request.args.get("cat") or "all").strip().lower()
     q = (request.args.get("q") or "").strip()
-    seeded = [enrich_deal(d) for d in load_seed_deals() if d.get("live") is not False]
-    counts = {"all": len(seeded)}
-    for item in seeded:
+    sort = (request.args.get("sort") or "latest").strip().lower()
+    if sort not in {"latest", "off", "price"}:
+        sort = "latest"
+    seeded = [
+        enrich_deal(d)
+        for d in apply_seed_overlay(load_seed_deals())
+        if d.get("live") is not False
+    ]
+    user_cards = [enrich_deal(d) for d in load_user_deal_cards()]
+    # User deals first (newest), then seed — stable unique by id
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for item in user_cards + seeded:
+        key = str(item.get("id") or "")
+        if not key or key in seen:
+            continue
+        # Public feed: skip cards without a real product image
+        if not has_real_image(item):
+            continue
+        seen.add(key)
+        merged.append(item)
+    counts = {"all": len(merged)}
+    for item in merged:
         key = str(item.get("category") or "")
         counts[key] = counts.get(key, 0) + 1
     needle = q.lower()
-    feed = seeded
+    feed = merged
     if cat and cat != "all":
         feed = [d for d in feed if d.get("category") == cat]
     if needle:
@@ -369,21 +642,34 @@ def home():
             or needle in str(d.get("line") or "").lower()
             or needle in str(d.get("fit") or "").lower()
             or needle in str(d.get("id") or "").lower()
+            or needle in str(d.get("detail") or "").lower()
         ]
-    feed = sorted(feed, key=lambda d: int(d.get("posted") or 0), reverse=True)
-    featured = None
-    if not needle and (not cat or cat == "all"):
-        featured = next((d for d in seeded if d.get("featured")), seeded[0] if seeded else None)
-    elif not needle:
-        featured = next((d for d in feed if d.get("featured")), None)
+    feed = sort_feed(feed, sort)
+    feed = attach_manage_flags(feed)
+    featured_list: list[dict] = []
+    if not needle:
+        if cat and cat != "all":
+            pool = feed
+        else:
+            pool = attach_manage_flags(sort_feed(merged, "latest"))
+        featured_list = pick_featured(pool, 3)
+    nav = visible_nav_cats(counts)
+    # If current cat was hidden (empty), bounce to all
+    if cat != "all" and cat not in {c["id"] for c in nav}:
+        cat = "all"
+        feed = attach_manage_flags(sort_feed(merged, sort))
+        featured_list = pick_featured(feed, 3) if not needle else []
     return render_template(
         "browse.html",
         deals=feed,
-        nav_cats=NAV_CATS,
+        nav_cats=nav,
+        all_nav_cats=NAV_CATS,
         counts=counts,
         cat=cat or "all",
         q=q,
-        featured=featured,
+        sort=sort,
+        featured=featured_list[0] if featured_list else None,
+        featured_list=featured_list,
     )
 
 
@@ -510,21 +796,34 @@ def post_deal():
 @login_required
 def my_deals():
     db = get_db()
-    rows = db.execute(
-        """
-        SELECT * FROM deals
-        WHERE owner_email = ? AND deleted_at IS NULL
-        ORDER BY datetime(updated_at) DESC, id DESC
-        """,
-        (current_email(),),
-    ).fetchall()
-    return render_template("deals.html", deals=rows)
+    if is_admin():
+        rows = db.execute(
+            """
+            SELECT * FROM deals
+            WHERE deleted_at IS NULL
+            ORDER BY datetime(updated_at) DESC, id DESC
+            """
+        ).fetchall()
+    else:
+        rows = db.execute(
+            """
+            SELECT * FROM deals
+            WHERE owner_email = ? AND deleted_at IS NULL
+            ORDER BY datetime(updated_at) DESC, id DESC
+            """,
+            (current_email(),),
+        ).fetchall()
+    return render_template(
+        "deals.html",
+        deals=rows,
+        viewing_as_admin=is_admin(),
+    )
 
 
 @app.route("/deals/<int:deal_id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_deal(deal_id: int):
-    deal = get_own_deal(deal_id)
+    deal = get_manageable_deal(deal_id)
     if deal["deleted_at"]:
         abort(404)
     error = None
@@ -540,12 +839,13 @@ def edit_deal(deal_id: int):
                 cover_url = f"{PUBLIC_BASE}/uploads/{cover_path}"
             now = utc_now()
             db = get_db()
+            # Never change owner_email — even when an admin edits someone else's deal.
             db.execute(
                 """
                 UPDATE deals SET
                     title=?, asin=?, amazon_url=?, deal_price=?, list_price=?,
                     department=?, buyer_note=?, cover_path=?, cover_url=?, updated_at=?
-                WHERE id=? AND owner_email=? AND deleted_at IS NULL
+                WHERE id=? AND deleted_at IS NULL
                 """,
                 (
                     fields["title"],
@@ -559,36 +859,141 @@ def edit_deal(deal_id: int):
                     cover_url,
                     now,
                     deal_id,
-                    current_email(),
                 ),
             )
             db.commit()
             row = db.execute("SELECT * FROM deals WHERE id = ?", (deal_id,)).fetchone()
-            if row is None or row["owner_email"] != current_email():
+            if row is None or not can_manage_deal(row):
                 abort(403)
             write_inbox("update", row)
             flash("Deal updated.")
             return redirect(url_for("my_deals"))
-    return render_template("edit.html", error=error, deal=deal, departments=DEPTS)
+    return render_template(
+        "edit.html",
+        error=error,
+        deal=deal,
+        departments=DEPTS,
+        editing_as_admin=is_admin() and deal["owner_email"] != current_email(),
+    )
 
 
 @app.post("/deals/<int:deal_id>/delete")
 @login_required
 def delete_deal(deal_id: int):
-    deal = get_own_deal(deal_id)
+    deal = get_manageable_deal(deal_id)
     if deal["deleted_at"]:
         abort(404)
     now = utc_now()
     db = get_db()
     db.execute(
-        "UPDATE deals SET deleted_at = ?, updated_at = ? WHERE id = ? AND owner_email = ?",
-        (now, now, deal_id, current_email()),
+        "UPDATE deals SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+        (now, now, deal_id),
     )
     db.commit()
     row = db.execute("SELECT * FROM deals WHERE id = ?", (deal_id,)).fetchone()
     write_inbox("delete", row)
-    flash("Deal removed from your list.")
+    flash("Deal removed.")
+    nxt = request.form.get("next") or ""
+    if nxt.startswith("/") and not nxt.startswith("//"):
+        return redirect(nxt)
     return redirect(url_for("my_deals"))
+
+
+def _find_seed_raw(seed_id: str) -> dict | None:
+    for deal in load_seed_deals():
+        if str(deal.get("id") or "") == seed_id:
+            return dict(deal)
+    return None
+
+
+@app.route("/seed/<seed_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_seed_deal(seed_id: str):
+    if not is_admin():
+        abort(403)
+    seed_id = (seed_id or "").strip()
+    raw = _find_seed_raw(seed_id)
+    if raw is None:
+        abort(404)
+    if seed_id in load_deleted_seed_ids():
+        abort(404)
+    overrides = load_seed_overrides()
+    current = dict(raw)
+    if seed_id in overrides:
+        current.update(overrides[seed_id])
+        current["id"] = seed_id
+    error = None
+    if request.method == "POST":
+        title = (request.form.get("title") or "").strip()
+        if not title:
+            error = "Product title is required"
+        else:
+            try:
+                price = parse_price(request.form.get("deal_price"), "Deal price", required=True)
+                was = parse_price(request.form.get("list_price"), "List price")
+            except ValueError as exc:
+                error = str(exc)
+            else:
+                patch = {
+                    "title": title[:200],
+                    "line": (request.form.get("line") or "").strip(),
+                    "fit": (request.form.get("fit") or "").strip(),
+                    "detail": (request.form.get("buyer_note") or request.form.get("detail") or "").strip(),
+                    "price": price,
+                    "was": was if was is not None else current.get("was"),
+                    "href": (request.form.get("amazon_url") or current.get("href") or "").strip(),
+                    "category": (request.form.get("category") or current.get("category") or "").strip().lower(),
+                    "image": (request.form.get("cover_url") or current.get("image") or "").strip() or current.get("image"),
+                    "asOf": (request.form.get("as_of") or current.get("asOf") or "").strip(),
+                    "live": True,
+                }
+                overrides[seed_id] = {**(overrides.get(seed_id) or {}), **{k: v for k, v in patch.items() if v is not None}}
+                save_seed_overrides(overrides)
+                flash("Seed deal updated.")
+                return redirect(url_for("home"))
+    # Shape for edit.html reuse
+    deal_view = {
+        "id": seed_id,
+        "title": current.get("title") or "",
+        "asin": seed_id if len(seed_id) == 10 else "",
+        "amazon_url": current.get("href") or "",
+        "deal_price": current.get("price") or "",
+        "list_price": current.get("was"),
+        "department": None,
+        "buyer_note": current.get("detail") or current.get("line") or "",
+        "cover_path": None,
+        "cover_url": current.get("image") or "",
+        "owner_email": "(seed)",
+        "line": current.get("line") or "",
+        "fit": current.get("fit") or "",
+        "category": current.get("category") or "",
+        "asOf": current.get("asOf") or "",
+    }
+    return render_template(
+        "edit_seed.html",
+        error=error,
+        deal=deal_view,
+        departments=DEPTS,
+        nav_cats=NAV_CATS,
+    )
+
+
+@app.post("/seed/<seed_id>/delete")
+@login_required
+def delete_seed_deal(seed_id: str):
+    if not is_admin():
+        abort(403)
+    seed_id = (seed_id or "").strip()
+    if not seed_id or _find_seed_raw(seed_id) is None:
+        abort(404)
+    deleted = load_deleted_seed_ids()
+    deleted.add(seed_id)
+    save_deleted_seed_ids(deleted)
+    flash("Seed deal removed from the feed.")
+    nxt = request.form.get("next") or ""
+    if nxt.startswith("/") and not nxt.startswith("//"):
+        return redirect(nxt)
+    return redirect(url_for("home"))
 
 
 @app.get("/uploads/<path:name>")

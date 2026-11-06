@@ -19,6 +19,7 @@
   .actions { display:flex; align-items:center; gap:8px; margin-left:auto; }
   .btn { appearance:none; border:0; border-radius:6px; background:var(--red); color:#fff; font-weight:700; padding:8px 12px; cursor:pointer; font-size:12px; text-decoration:none; display:inline-block; }
   .btn.ghost { background:#fff; color:#171717; border:1px solid #d4d4d4; }
+  .btn.sm { padding:6px 10px; font-size:11px; }
   .layout { display:flex; align-items:stretch; min-height:calc(100vh - 88px); }
   aside { width:248px; flex:0 0 248px; background:#fff; border-right:1px solid var(--line); padding:14px 12px 28px; }
   .dept-label { font-size:11px; font-weight:700; color:var(--muted); letter-spacing:0.08em; padding:0 8px 10px; }
@@ -37,17 +38,28 @@
   .chip { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; background:#f5f5f5; color:#404040; border:1px solid var(--line); border-radius:999px; padding:8px 12px; text-decoration:none; font-size:12px; font-weight:600; white-space:nowrap; }
   .chip.on { background:#171717; color:#fff; border-color:#171717; }
   main { flex:1 1 auto; min-width:0; padding:16px 16px 36px; }
-  .headline { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+  .headline { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
   .headline h1 { font-size:24px; font-weight:700; margin:0; letter-spacing:-0.02em; }
   .headline p { font-size:12px; color:var(--muted); margin:2px 0 0; }
+  .sortbar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .sortbar span { font-size:11px; color:var(--muted); margin-right:2px; }
+  .sort { appearance:none; border:1px solid #d4d4d4; background:#fff; color:#404040; border-radius:999px; padding:6px 10px; font:inherit; font-size:12px; font-weight:600; text-decoration:none; }
+  .sort.on { background:#171717; color:#fff; border-color:#171717; }
+  .feat-row { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; margin-bottom:16px; }
+  .feat-card { position:relative; display:flex; flex-direction:column; background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; text-decoration:none; color:inherit; cursor:pointer; }
+  .feat-card .thumb { width:100%; height:140px; background:#fafafa; border-bottom:1px solid #ececec; display:flex; align-items:center; justify-content:center; }
+  .feat-card .thumb img { width:100%; height:100%; object-fit:contain; display:block; padding:10px; background:#fff; }
+  .feat-card .copy { padding:10px 12px 12px; }
+  .feat-card h2 { font-size:15px; font-weight:700; line-height:1.3; margin:0 0 6px; min-height:40px; }
+  .feat-card .line { font-size:12px; color:#525252; margin-bottom:8px; }
+  .feat-card .now { font-size:18px; font-weight:800; }
   .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:12px; }
-  .card { display:flex; flex-direction:column; background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden; text-decoration:none; color:inherit; }
-  .card-top { padding:8px 10px 6px; display:flex; align-items:center; justify-content:flex-end; min-height:28px; }
+  .card-wrap { position:relative; }
+  .card { display:flex; flex-direction:column; background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden; text-decoration:none; color:inherit; cursor:pointer; height:100%; }
+  .card-top { padding:8px 10px 6px; display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:28px; }
   .pill { display:inline-block; background:var(--red); color:#fff; font-weight:700; font-size:10px; padding:2px 6px; border-radius:3px; line-height:1.2; }
   .thumb { width:100%; height:120px; background:#fafafa; border-bottom:1px solid #ececec; display:flex; align-items:center; justify-content:center; }
   .thumb img { width:100%; height:100%; object-fit:contain; display:block; padding:8px; background:#fff; }
-  .featured .thumb img { padding:16px; }
-  .initials { width:72px; height:72px; border-radius:10px; background:linear-gradient(145deg,#e5e5e5,#f5f5f5); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; color:#525252; }
   .card-body { padding:8px 10px 10px; }
   .title { font-size:15px; font-weight:600; line-height:1.33; margin-bottom:6px; min-height:40px; color:#050505; }
   .prices { display:flex; align-items:baseline; gap:6px; }
@@ -57,16 +69,31 @@
   .asof { font-size:10px; color:var(--muted); margin-top:4px; }
   .asof.stale { font-style:italic; color:#a3a3a3; }
   .fit { font-size:11px; color:var(--muted); margin-top:4px; }
-  .featured { width:100%; display:flex; gap:16px; align-items:stretch; background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-bottom:16px; text-decoration:none; color:inherit; }
-  .featured .thumb { flex:0 0 200px; width:200px; height:220px; border-bottom:0; border-right:1px solid #ececec; }
-  .featured .copy { flex:1 1 220px; padding:16px 18px; min-width:200px; }
-  .featured h2 { font-size:20px; font-weight:800; line-height:1.25; margin:0 0 6px; }
-  .featured .line { font-size:13px; color:#525252; margin-bottom:10px; }
-  .featured .now { font-size:28px; font-weight:900; }
+  .menu-wrap { position:absolute; top:6px; right:6px; z-index:6; }
+  .menu-btn { width:28px; height:28px; border-radius:999px; border:1px solid #d4d4d4; background:rgba(255,255,255,.96); color:#404040; font-size:18px; line-height:1; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; box-shadow:0 1px 2px rgba(0,0,0,.06); }
+  .menu-btn:hover { background:#fff; }
+  .menu-pop { display:none; position:absolute; right:0; top:calc(100% + 4px); min-width:132px; background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.12); padding:6px; }
+  .menu-wrap.open .menu-pop { display:block; }
+  .menu-pop a, .menu-pop button { display:block; width:100%; text-align:left; background:transparent; border:0; border-radius:8px; padding:8px 10px; font:inherit; font-size:13px; font-weight:600; color:#171717; text-decoration:none; cursor:pointer; }
+  .menu-pop a:hover, .menu-pop button:hover { background:#f5f5f5; }
+  .menu-pop button.danger { color:#b42318; }
+  .menu-pop form { margin:0; }
   .empty { border:1px dashed #d4d4d4; border-radius:12px; padding:48px 20px; text-align:center; color:var(--muted); background:#fff; }
   .count { margin-top:18px; color:#a3a3a3; font-size:12px; text-align:center; }
   footer { margin-top:28px; padding-top:20px; border-top:1px solid var(--line); font-size:11px; color:#a3a3a3; line-height:1.45; }
   footer .row { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px; font-size:13px; color:#525252; }
+  .modal-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.42); z-index:40; align-items:center; justify-content:center; padding:16px; }
+  .modal-backdrop.open { display:flex; }
+  .modal { width:min(520px, 100%); background:#fff; border-radius:14px; border:1px solid var(--line); box-shadow:0 20px 50px rgba(0,0,0,.22); overflow:hidden; max-height:min(88vh, 720px); display:flex; flex-direction:column; }
+  .modal-top { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-bottom:1px solid var(--line); }
+  .modal-top strong { font-size:13px; }
+  .modal-x { border:0; background:#f5f5f5; width:28px; height:28px; border-radius:999px; cursor:pointer; font-size:16px; }
+  .modal-body { padding:14px 16px 18px; overflow:auto; }
+  .modal-thumb { width:100%; height:200px; background:#fafafa; border:1px solid #ececec; border-radius:10px; display:flex; align-items:center; justify-content:center; margin-bottom:12px; }
+  .modal-thumb img { max-width:100%; max-height:100%; object-fit:contain; padding:12px; }
+  .modal h3 { margin:0 0 6px; font-size:18px; line-height:1.3; }
+  .modal .detail { font-size:13px; color:#404040; line-height:1.45; margin:10px 0 14px; }
+  .modal-actions { display:flex; flex-wrap:wrap; gap:8px; }
   @media (max-width:900px) {
     .top { padding:12px 14px 8px; }
     .brand .name { font-size:20px; }
@@ -74,8 +101,7 @@
     aside { display:none; }
     .chips { display:block; }
     main { padding:14px 12px 36px; }
-    .featured { flex-direction:column; gap:0; }
-    .featured .thumb { flex:0 0 auto; width:100%; height:220px; border-right:0; border-bottom:1px solid #ececec; }
+    .feat-row { grid-template-columns:1fr; }
   }
 </style>
 </head>
@@ -88,14 +114,16 @@
       </a>
       <form class="search" method="get" action="{{ url_for('home') }}">
         {% if cat and cat != 'all' %}<input type="hidden" name="cat" value="{{ cat }}"/>{% endif %}
+        {% if sort and sort != 'latest' %}<input type="hidden" name="sort" value="{{ sort }}"/>{% endif %}
         <input type="search" name="q" value="{{ q }}" placeholder="e.g. cabin filter, Tesla, fridge bracket" aria-label="Search deals"/>
       </form>
       <div class="actions">
-        <a class="btn" href="{{ url_for('post_deal') }}">+ Post Deal</a>
         {% if session.email %}
+          <a class="btn" href="{{ url_for('post_deal') }}">+ Post Deal</a>
           <a class="btn ghost" href="{{ url_for('my_deals') }}">My deals</a>
           <a class="btn ghost" href="{{ url_for('logout') }}">Log out</a>
         {% else %}
+          <a class="btn ghost" href="{{ url_for('post_deal') }}">Post Deal</a>
           <a class="btn ghost" href="{{ url_for('login') }}">Log in</a>
         {% endif %}
       </div>
@@ -104,9 +132,8 @@
   <div class="chips">
     <div class="chips-inner">
       {% for f in nav_cats %}
-        {% set count = counts.get(f.id, 0) if f.id != 'all' else counts.get('all', 0) %}
-        <a class="chip{% if cat == f.id %} on{% endif %}" href="{{ url_for('home', cat=none if f.id == 'all' else f.id, q=q or none) }}">
-          <span>{{ f.icon }}</span><span>{{ f.label }}</span>{% if f.id != 'all' and count == 0 %}<span>Soon</span>{% endif %}
+        <a class="chip{% if cat == f.id %} on{% endif %}" href="{{ url_for('home', cat=none if f.id == 'all' else f.id, q=q or none, sort=none if sort == 'latest' else sort) }}">
+          <span>{{ f.icon }}</span><span>{{ f.label }}</span>
         </a>
       {% endfor %}
     </div>
@@ -115,7 +142,7 @@
     <aside>
       <div class="dept-label">DEPARTMENT</div>
       {% for f in nav_cats %}
-        <a class="cat{% if cat == f.id %} on{% endif %}" href="{{ url_for('home', cat=none if f.id == 'all' else f.id, q=q or none) }}">
+        <a class="cat{% if cat == f.id %} on{% endif %}" href="{{ url_for('home', cat=none if f.id == 'all' else f.id, q=q or none, sort=none if sort == 'latest' else sort) }}">
           <span class="ico">{{ f.icon }}</span>
           <span class="grow">
             <div class="cat-title">{{ f.label }}</div>
@@ -134,28 +161,66 @@
             {% if q %} · “{{ q }}”{% endif %}
           </p>
         </div>
-        <a class="btn" href="{{ url_for('post_deal') }}">+ Post Deal</a>
+        <div class="sortbar">
+          <span>Sort</span>
+          <a class="sort{% if sort == 'latest' %} on{% endif %}" href="{{ url_for('home', cat=none if cat == 'all' else cat, q=q or none, sort=none) }}">Latest</a>
+          <a class="sort{% if sort == 'off' %} on{% endif %}" href="{{ url_for('home', cat=none if cat == 'all' else cat, q=q or none, sort='off') }}">Biggest % off</a>
+          <a class="sort{% if sort == 'price' %} on{% endif %}" href="{{ url_for('home', cat=none if cat == 'all' else cat, q=q or none, sort='price') }}">Price ↑</a>
+          {% if session.email %}
+            <a class="btn sm" href="{{ url_for('post_deal') }}">+ Post</a>
+          {% endif %}
+        </div>
       </div>
 
-      {% if featured %}
-        <a class="featured" href="{{ featured.amazon_url }}" target="_blank" rel="noopener noreferrer">
-          <div class="thumb">{% if featured.image %}<img src="{{ featured.image }}" alt="{{ featured.title }}" loading="lazy"/>{% else %}<div class="initials">{{ featured.initials }}</div>{% endif %}</div>
-          <div class="copy">
-            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-              <span class="pill">Today's pick</span>
-              {% if featured.badge %}<span class="pill">{{ featured.badge }}</span>{% endif %}
+      {% if featured_list %}
+        <div class="feat-row">
+          {% for f in featured_list %}
+            <div class="card-wrap">
+              {% if f.can_manage %}
+              <div class="menu-wrap" data-menu>
+                <button class="menu-btn" type="button" aria-label="Manage deal" data-menu-btn>⋯</button>
+                <div class="menu-pop" role="menu">
+                  <a href="{{ f.manage_url }}">Edit</a>
+                  <form method="post" action="{{ f.delete_url }}" onsubmit="return confirm('Delete this deal from the feed?');">
+                    <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}"/>
+                    <button class="danger" type="submit">Delete</button>
+                  </form>
+                </div>
+              </div>
+              {% endif %}
+              <div class="feat-card" role="button" tabindex="0"
+                   data-open-deal
+                   data-title="{{ f.title|e }}"
+                   data-line="{{ (f.line or '')|e }}"
+                   data-detail="{{ (f.detail or f.fit or '')|e }}"
+                   data-fit="{{ (f.fit or '')|e }}"
+                   data-price="{{ '%.2f'|format(f.price) }}"
+                   data-was="{{ '%.2f'|format(f.was) }}"
+                   data-off="{{ f.off or 0 }}"
+                   data-badge="{{ (f.badge or '')|e }}"
+                   data-asof="{{ (f.asOf or '')|e }}"
+                   data-stale="{{ '1' if f.stale else '0' }}"
+                   data-image="{{ (f.image or '')|e }}"
+                   data-amazon="{{ f.amazon_url|e }}"
+                   data-id="{{ f.id|e }}">
+                <div class="thumb"><img src="{{ f.image }}" alt="{{ f.title }}" loading="lazy"/></div>
+                <div class="copy">
+                  <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">
+                    <span class="pill">Today's pick</span>
+                    {% if f.badge %}<span class="pill">{{ f.badge }}</span>{% endif %}
+                  </div>
+                  <h2>{{ f.title }}</h2>
+                  {% if f.line %}<div class="line">{{ f.line }}</div>{% endif %}
+                  <div class="prices">
+                    <span class="now{% if f.stale %} stale{% endif %}">${{ '%.2f'|format(f.price) }}</span>
+                    <span class="was">${{ '%.2f'|format(f.was) }}</span>
+                  </div>
+                  <div class="asof{% if f.stale %} stale{% endif %}">{% if f.stale %}Price may be outdated{% elif f.asOf %}Price as of {{ f.asOf }}{% endif %}</div>
+                </div>
+              </div>
             </div>
-            <h2>{{ featured.title }}</h2>
-            <div class="line">{{ featured.line }}</div>
-            <div class="prices" style="margin-bottom:4px;">
-              <span class="now{% if featured.stale %} stale{% endif %}">${{ '%.2f'|format(featured.price) }}</span>
-              <span class="was">${{ '%.2f'|format(featured.was) }}</span>
-            </div>
-            <div class="asof{% if featured.stale %} stale{% endif %}">{% if featured.stale %}Price may be outdated{% else %}Price as of {{ featured.asOf }}{% endif %}</div>
-            <div class="fit" style="margin:10px 0 12px;color:#404040;font-size:13px;line-height:1.45;">{{ featured.detail }}</div>
-            <span class="btn">Get this deal on Amazon →</span>
-          </div>
-        </a>
+          {% endfor %}
+        </div>
       {% endif %}
 
       {% if not deals %}
@@ -164,29 +229,59 @@
             <div style="font-size:15px;font-weight:700;color:#525252;margin-bottom:6px;">No matches</div>
             <div>Try another keyword.</div>
           {% else %}
-            <div style="font-size:15px;font-weight:700;color:#525252;margin-bottom:6px;">Soon</div>
-            <div>No deals in this department yet.</div>
+            <div style="font-size:15px;font-weight:700;color:#525252;margin-bottom:6px;">No deals yet</div>
+            <div>Check back soon.</div>
           {% endif %}
         </div>
       {% else %}
         <div class="grid">
           {% for d in deals %}
-            <a class="card" href="{{ d.amazon_url }}" target="_blank" rel="noopener noreferrer">
-              <div class="card-top">{% if d.badge %}<span class="pill">{{ d.badge }}</span>{% endif %}</div>
-              <div class="thumb">{% if d.image %}<img src="{{ d.image }}" alt="{{ d.title }}" loading="lazy"/>{% else %}<div class="initials">{{ d.initials }}</div>{% endif %}</div>
-              <div class="card-body">
-                <div class="title">{{ d.title }}</div>
-                <div class="prices">
-                  <span class="now{% if d.stale %} stale{% endif %}">${{ '%.2f'|format(d.price) }}</span>
-                  <span class="was">${{ '%.2f'|format(d.was) }}</span>
+            <div class="card-wrap">
+              {% if d.can_manage %}
+              <div class="menu-wrap" data-menu>
+                <button class="menu-btn" type="button" aria-label="Manage deal" data-menu-btn>⋯</button>
+                <div class="menu-pop" role="menu">
+                  <a href="{{ d.manage_url }}">Edit</a>
+                  <form method="post" action="{{ d.delete_url }}" onsubmit="return confirm('Delete this deal from the feed?');">
+                    <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}"/>
+                    <button class="danger" type="submit">Delete</button>
+                  </form>
                 </div>
-                <div class="asof{% if d.stale %} stale{% endif %}">{% if d.stale %}Price may be outdated{% else %}Price as of {{ d.asOf }}{% endif %}</div>
-                <div class="fit">{{ d.fit }}</div>
               </div>
-            </a>
+              {% endif %}
+              <div class="card" role="button" tabindex="0"
+                   data-open-deal
+                   data-title="{{ d.title|e }}"
+                   data-line="{{ (d.line or '')|e }}"
+                   data-detail="{{ (d.detail or d.fit or '')|e }}"
+                   data-fit="{{ (d.fit or '')|e }}"
+                   data-price="{{ '%.2f'|format(d.price) }}"
+                   data-was="{{ '%.2f'|format(d.was) }}"
+                   data-off="{{ d.off or 0 }}"
+                   data-badge="{{ (d.badge or '')|e }}"
+                   data-asof="{{ (d.asOf or '')|e }}"
+                   data-stale="{{ '1' if d.stale else '0' }}"
+                   data-image="{{ (d.image or '')|e }}"
+                   data-amazon="{{ d.amazon_url|e }}"
+                   data-id="{{ d.id|e }}">
+                <div class="card-top">
+                  <span>{% if d.badge %}<span class="pill">{{ d.badge }}</span>{% endif %}</span>
+                </div>
+                <div class="thumb"><img src="{{ d.image }}" alt="{{ d.title }}" loading="lazy"/></div>
+                <div class="card-body">
+                  <div class="title">{{ d.title }}</div>
+                  <div class="prices">
+                    <span class="now{% if d.stale %} stale{% endif %}">${{ '%.2f'|format(d.price) }}</span>
+                    <span class="was">${{ '%.2f'|format(d.was) }}</span>
+                  </div>
+                  <div class="asof{% if d.stale %} stale{% endif %}">{% if d.stale %}Price may be outdated{% elif d.asOf %}Price as of {{ d.asOf }}{% endif %}</div>
+                  {% if d.fit %}<div class="fit">{{ d.fit }}</div>{% endif %}
+                </div>
+              </div>
+            </div>
           {% endfor %}
         </div>
-        <div class="count">{{ deals|length }} deals · tap a card for Amazon.ca</div>
+        <div class="count">{{ deals|length }} deals · tap a card for details</div>
       {% endif %}
 
       <footer>
@@ -198,5 +293,129 @@
       </footer>
     </main>
   </div>
+
+  <div class="modal-backdrop" id="dealModal" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dealModalTitle">
+      <div class="modal-top">
+        <strong>Deal details</strong>
+        <button type="button" class="modal-x" id="dealModalClose" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-thumb" id="mThumb"></div>
+        <div style="margin-bottom:8px;" id="mBadges"></div>
+        <h3 id="dealModalTitle"></h3>
+        <div class="line" id="mLine" style="font-size:13px;color:#525252;margin-bottom:8px;"></div>
+        <div class="prices" style="margin-bottom:4px;">
+          <span class="now" id="mPrice"></span>
+          <span class="was" id="mWas"></span>
+          <span class="pill" id="mOff" style="margin-left:4px;"></span>
+        </div>
+        <div class="asof" id="mAsof"></div>
+        <div class="detail" id="mDetail"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn ghost" id="mCopy">Copy share link</button>
+          <a class="btn" id="mAmazon" href="#" target="_blank" rel="noopener noreferrer">Get on Amazon →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  function closeMenus(except) {
+    document.querySelectorAll('[data-menu].open').forEach(function (el) {
+      if (el !== except) el.classList.remove('open');
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-menu-btn]');
+    if (btn) {
+      e.preventDefault();
+      e.stopPropagation();
+      var wrap = btn.closest('[data-menu]');
+      var open = wrap.classList.contains('open');
+      closeMenus();
+      if (!open) wrap.classList.add('open');
+      return;
+    }
+    if (e.target.closest('[data-menu]')) {
+      e.stopPropagation();
+      return;
+    }
+    closeMenus();
+  });
+
+  var modal = document.getElementById('dealModal');
+  var mTitle = document.getElementById('dealModalTitle');
+  var mLine = document.getElementById('mLine');
+  var mDetail = document.getElementById('mDetail');
+  var mPrice = document.getElementById('mPrice');
+  var mWas = document.getElementById('mWas');
+  var mOff = document.getElementById('mOff');
+  var mAsof = document.getElementById('mAsof');
+  var mThumb = document.getElementById('mThumb');
+  var mBadges = document.getElementById('mBadges');
+  var mAmazon = document.getElementById('mAmazon');
+  var mCopy = document.getElementById('mCopy');
+  var currentId = '';
+
+  function openDeal(el) {
+    currentId = el.getAttribute('data-id') || '';
+    mTitle.textContent = el.getAttribute('data-title') || '';
+    mLine.textContent = el.getAttribute('data-line') || '';
+    mDetail.textContent = el.getAttribute('data-detail') || el.getAttribute('data-fit') || '';
+    mPrice.textContent = '$' + (el.getAttribute('data-price') || '0.00');
+    mWas.textContent = '$' + (el.getAttribute('data-was') || '0.00');
+    var off = parseInt(el.getAttribute('data-off') || '0', 10);
+    var badge = el.getAttribute('data-badge') || '';
+    mOff.style.display = off ? 'inline-block' : 'none';
+    mOff.textContent = off ? (off + '% OFF') : '';
+    mBadges.innerHTML = badge ? '<span class="pill">' + badge.replace(/</g,'') + '</span>' : '';
+    var stale = el.getAttribute('data-stale') === '1';
+    var asof = el.getAttribute('data-asof') || '';
+    mAsof.textContent = stale ? 'Price may be outdated' : (asof ? ('Price as of ' + asof) : '');
+    mAsof.className = 'asof' + (stale ? ' stale' : '');
+    var img = el.getAttribute('data-image') || '';
+    mThumb.innerHTML = img ? '<img src="' + img.replace(/"/g,'') + '" alt=""/>' : '';
+    mAmazon.href = el.getAttribute('data-amazon') || '#';
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+  function closeDeal() {
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  document.querySelectorAll('[data-open-deal]').forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      if (e.target.closest('[data-menu]')) return;
+      openDeal(el);
+    });
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openDeal(el);
+      }
+    });
+  });
+  document.getElementById('dealModalClose').addEventListener('click', closeDeal);
+  modal.addEventListener('click', function (e) {
+    if (e.target === modal) closeDeal();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeDeal();
+  });
+  mCopy.addEventListener('click', function () {
+    var url = location.origin + location.pathname + '?q=' + encodeURIComponent(currentId || mTitle.textContent || '');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () {
+        mCopy.textContent = 'Copied!';
+        setTimeout(function () { mCopy.textContent = 'Copy share link'; }, 1200);
+      });
+    } else {
+      prompt('Copy this link', url);
+    }
+  });
+})();
+</script>
 </body>
 </html>

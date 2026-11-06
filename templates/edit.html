@@ -2,7 +2,7 @@
 {% block title %}Edit deal — Harrison Deals{% endblock %}
 {% block body %}
   <h1>Edit deal</h1>
-  <p class="sub">Only you can change this listing because it was posted with {{ session.email }}.</p>
+  <p class="sub">{% if editing_as_admin %}Admin edit — owner stays {{ deal.owner_email }}.{% else %}Only you can change this listing because it was posted with {{ session.email }}.{% endif %}</p>
   {% if error %}<div class="msg err" role="alert">{{ error }}</div>{% endif %}
   <form class="card" method="post" enctype="multipart/form-data">
     <label>Product title *

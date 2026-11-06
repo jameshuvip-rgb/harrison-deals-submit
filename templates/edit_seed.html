@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Edit seed deal — Harrison Deals{% endblock %}
+{% block body %}
+  <h1>Edit seed deal</h1>
+  <p class="sub">Admin-only. Changes are saved as an overlay under <code>data/seed_overrides.json</code> (owner stays seed / null).</p>
+  {% if error %}<div class="msg err" role="alert">{{ error }}</div>{% endif %}
+  <form class="card" method="post">
+    <label>Product title *
+      <input name="title" required maxlength="200" value="{{ deal.title or '' }}" />
+    </label>
+    <div class="row">
+      <label>Category
+        <select name="category">
+          {% for c in nav_cats if c.id != 'all' %}
+            <option value="{{ c.id }}" {% if deal.category == c.id %}selected{% endif %}>{{ c.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>ASIN / id
+        <input value="{{ deal.asin or deal.id }}" disabled />
+      </label>
+    </div>
+    <label>Amazon.ca URL
+      <input name="amazon_url" type="url" value="{{ deal.amazon_url or '' }}" />
+    </label>
+    <div class="row">
+      <label>Deal price (CAD) *
+        <input name="deal_price" type="number" min="0" step="0.01" required value="{{ deal.deal_price }}" />
+      </label>
+      <label>List / was price
+        <input name="list_price" type="number" min="0" step="0.01" value="{{ deal.list_price if deal.list_price is not none else '' }}" />
+      </label>
+    </div>
+    <label>One-line (subtitle)
+      <input name="line" maxlength="200" value="{{ deal.line or '' }}" />
+    </label>
+    <label>Fit note
+      <input name="fit" maxlength="200" value="{{ deal.fit or '' }}" />
+    </label>
+    <label>Detail / buyer note
+      <textarea name="buyer_note" maxlength="500">{{ deal.buyer_note or '' }}</textarea>
+    </label>
+    <label>Cover image URL
+      <input name="cover_url" type="url" value="{{ deal.cover_url or '' }}" />
+    </label>
+    <label>As-of label
+      <input name="as_of" maxlength="40" value="{{ deal.asOf or '' }}" />
+    </label>
+    <button type="submit">Save seed changes</button>
+  </form>
+{% endblock %}

@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}My deals — Harrison Deals{% endblock %}
 {% block body %}
-  <h1>My deals</h1>
-  <p class="sub">Only deals posted with {{ session.email }} are shown here. Other people’s deals cannot be edited.</p>
+  <h1>{% if viewing_as_admin %}All deals (admin){% else %}My deals{% endif %}</h1>
+  <p class="sub">{% if viewing_as_admin %}You can edit or delete any active deal. Owners still keep ownership when you edit.{% else %}Only deals posted with {{ session.email }} are shown here.{% endif %}</p>
   <div class="card">
     {% if deals %}
     <table>
@@ -11,6 +11,7 @@
           <th>Title</th>
           <th>Price</th>
           <th>Department</th>
+          {% if viewing_as_admin %}<th>Owner</th>{% endif %}
           <th></th>
         </tr>
       </thead>
@@ -26,12 +27,18 @@
             {% if d.list_price %}<div class="muted">was ${{ '%.2f'|format(d.list_price) }}</div>{% endif %}
           </td>
           <td>{{ d.department or '—' }}</td>
+          {% if viewing_as_admin %}<td class="muted">{{ d.owner_email }}</td>{% endif %}
           <td>
-            <div class="actions">
-              <a class="btn secondary" href="{{ url_for('edit_deal', deal_id=d.id) }}">Edit</a>
-              <form method="post" action="{{ url_for('delete_deal', deal_id=d.id) }}" onsubmit="return confirm('Remove this deal from your list?');">
-                <button class="danger" type="submit">Delete</button>
-              </form>
+            <div class="actions" style="position:relative;">
+              <details>
+                <summary style="list-style:none;cursor:pointer;border:1px solid var(--line);border-radius:999px;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:#fff;font-size:16px;" title="Manage">⋯</summary>
+                <div style="position:absolute;right:0;top:32px;min-width:132px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:6px;z-index:5;">
+                  <a class="btn secondary" style="display:block;margin-bottom:4px;padding:8px 10px;border-radius:8px;" href="{{ url_for('edit_deal', deal_id=d.id) }}">Edit</a>
+                  <form method="post" action="{{ url_for('delete_deal', deal_id=d.id) }}" onsubmit="return confirm('Remove this deal?');">
+                    <button class="danger" type="submit" style="width:100%;border-radius:8px;padding:8px 10px;">Delete</button>
+                  </form>
+                </div>
+              </details>
             </div>
           </td>
         </tr>
@@ -39,7 +46,7 @@
       </tbody>
     </table>
     {% else %}
-      <p class="empty">No deals yet. <a href="{{ landing_url }}" target="_blank" rel="noopener">Browse the public feed</a> anytime, or <a href="{{ url_for('post_deal') }}">post when you are ready</a>.</p>
+      <p class="empty">No deals yet. <a href="{{ url_for('home') }}">Browse the public feed</a> anytime, or <a href="{{ url_for('post_deal') }}">post when you are ready</a>.</p>
     {% endif %}
   </div>
 {% endblock %}
