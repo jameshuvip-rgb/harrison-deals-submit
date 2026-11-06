@@ -94,6 +94,39 @@
   .modal h3 { margin:0 0 6px; font-size:18px; line-height:1.3; }
   .modal .detail { font-size:13px; color:#404040; line-height:1.45; margin:10px 0 14px; }
   .modal-actions { display:flex; flex-wrap:wrap; gap:8px; }
+
+  .live-rail { width: 292px; flex: 0 0 292px; padding: 16px 16px 36px 0; }
+  .live-card { position: sticky; top: 14px; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+  .live-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px 10px; border-bottom:1px solid var(--line); }
+  .live-head h2 { margin:0; font-size:14px; font-weight:700; letter-spacing:-0.01em; display:flex; align-items:center; gap:8px; }
+  .live-dot { width:8px; height:8px; border-radius:999px; background:var(--red); box-shadow:0 0 0 3px rgba(229,9,20,.15); flex:0 0 auto; animation: live-pulse 1.6s ease-in-out infinite; }
+  @keyframes live-pulse { 0%,100% { box-shadow:0 0 0 3px rgba(229,9,20,.12); } 50% { box-shadow:0 0 0 5px rgba(229,9,20,.22); } }
+  .live-sub { font-size:11px; color:var(--muted); }
+  .live-viewport { height: min(68vh, 560px); overflow: hidden; position: relative; }
+  .live-viewport::before, .live-viewport::after { content:""; position:absolute; left:0; right:0; height:28px; z-index:2; pointer-events:none; }
+  .live-viewport::before { top:0; background:linear-gradient(#fff, rgba(255,255,255,0)); }
+  .live-viewport::after { bottom:0; background:linear-gradient(rgba(255,255,255,0), #fff); }
+  .live-track { display:flex; flex-direction:column; will-change: transform; animation: live-scroll 42s linear infinite; }
+  .live-viewport:hover .live-track { animation-play-state: paused; }
+  @keyframes live-scroll {
+    from { transform: translateY(0); }
+    to { transform: translateY(-50%); }
+  }
+  .live-row { display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid #f0f0f0; cursor:pointer; text-align:left; background:transparent; border-left:0; border-right:0; border-top:0; width:100%; font:inherit; color:inherit; }
+  .live-row:hover { background:#fafafa; }
+  .live-row .t { width:44px; height:44px; border-radius:8px; background:#fafafa; border:1px solid #ececec; flex:0 0 auto; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+  .live-row .t img { width:100%; height:100%; object-fit:contain; display:block; background:#fff; }
+  .live-row .meta { flex:1 1 auto; min-width:0; }
+  .live-row .ev { font-size:10px; font-weight:700; color:var(--muted); letter-spacing:0.02em; text-transform:uppercase; display:flex; align-items:center; gap:5px; margin-bottom:2px; }
+  .live-row .ev .new { width:6px; height:6px; border-radius:999px; background:var(--red); flex:0 0 auto; }
+  .live-row .tt { font-size:13px; font-weight:600; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .live-row .bot { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-top:3px; }
+  .live-row .pr { font-size:13px; font-weight:700; color:var(--price); }
+  .live-row .tm { font-size:11px; color:var(--muted); flex:0 0 auto; }
+  .live-empty { padding:24px 14px; text-align:center; color:var(--muted); font-size:12px; }
+  @media (max-width:1100px) {
+    .live-rail { display:none; }
+  }
   @media (max-width:900px) {
     .top { padding:12px 14px 8px; }
     .brand .name { font-size:20px; }
@@ -106,6 +139,7 @@
     .grid { grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:10px; }
     .thumb { height:160px; }
     .modal-thumb { height:200px; }
+    .live-rail { display:none; }
   }
 </style>
 </head>
@@ -296,6 +330,52 @@
         Prices checked as of each card's as-of date. Amazon may change them anytime — confirm on Amazon.ca before you buy.
       </footer>
     </main>
+
+    <aside class="live-rail" aria-label="Live updates">
+      <div class="live-card">
+        <div class="live-head">
+          <h2><span class="live-dot" aria-hidden="true"></span>Live updates</h2>
+          <span class="live-sub">最新动态</span>
+        </div>
+        {% if live_activity %}
+        <div class="live-viewport" data-live-rail>
+          <div class="live-track">
+            {% for pass in [1, 2] %}
+              {% for a in live_activity %}
+                <button type="button" class="live-row"
+                   data-open-deal
+                   data-title="{{ a.title|e }}"
+                   data-line="{{ (a.line or '')|e }}"
+                   data-detail="{{ (a.detail or a.fit or '')|e }}"
+                   data-fit="{{ (a.fit or '')|e }}"
+                   data-price="{{ '%.2f'|format(a.price) }}"
+                   data-was="{{ '%.2f'|format(a.was) }}"
+                   data-off="{{ a.off or 0 }}"
+                   data-badge="{{ (a.badge or '')|e }}"
+                   data-asof="{{ (a.asOf or '')|e }}"
+                   data-stale="{{ '1' if a.stale else '0' }}"
+                   data-image="{{ (a.image or '')|e }}"
+                   data-amazon="{{ a.amazon_url|e }}"
+                   data-id="{{ a.id|e }}">
+                  <span class="t">{% if a.image %}<img src="{{ a.image }}" alt="" loading="lazy"/>{% endif %}</span>
+                  <span class="meta">
+                    <span class="ev">{% if a.is_new %}<span class="new" aria-hidden="true"></span>{% endif %}{{ a.event }}</span>
+                    <span class="tt">{{ a.short_title }}</span>
+                    <span class="bot">
+                      <span class="pr">${{ '%.2f'|format(a.price) }}</span>
+                      <span class="tm">{{ a.rel_time }}</span>
+                    </span>
+                  </span>
+                </button>
+              {% endfor %}
+            {% endfor %}
+          </div>
+        </div>
+        {% else %}
+          <div class="live-empty">No new posts yet — check back soon.</div>
+        {% endif %}
+      </div>
+    </aside>
   </div>
 
   <div class="modal-backdrop" id="dealModal" aria-hidden="true">

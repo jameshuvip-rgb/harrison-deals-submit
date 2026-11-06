@@ -348,6 +348,72 @@ def sort_feed(feed: list[dict], sort: str) -> list[dict]:
     return sorted(feed, key=lambda d: int(d.get("posted") or 0), reverse=True)
 
 
+
+def relative_time_label(deal: dict) -> str:
+    """Human relative time for live rail — prefer seed ago, else unix posted."""
+    ago = str(deal.get("ago") or "").strip()
+    if ago:
+        return ago
+    try:
+        ts = int(deal.get("posted") or 0)
+    except (TypeError, ValueError):
+        return "just now"
+    # Seed ranking ints are tiny; only treat real unix timestamps
+    if ts < 1_000_000_000:
+        return "just now"
+    diff = max(0, int(time.time()) - ts)
+    if diff < 45:
+        return "just now"
+    if diff < 3600:
+        m = max(1, diff // 60)
+        return f"{m}m ago"
+    if diff < 86400:
+        h = max(1, diff // 3600)
+        return f"{h}h ago"
+    days = max(1, diff // 86400)
+    return "1d ago" if days == 1 else f"{days}d ago"
+
+
+def build_live_activity(merged: list[dict], limit: int = 16) -> list[dict]:
+    """Recent deal events for the right-rail live feed (no fake users/shares)."""
+    limit = max(12, min(int(limit or 16), 20))
+    ranked = sort_feed(list(merged), "latest")
+    out: list[dict] = []
+    for deal in ranked:
+        if len(out) >= limit:
+            break
+        title = str(deal.get("title") or "").strip()
+        if not title:
+            continue
+        short = title if len(title) <= 42 else (title[:39].rstrip() + "…")
+        price = float(deal.get("price") or 0)
+        event = "Just live" if deal.get("source") == "user" else "Newly posted"
+        # freshest few tagged as new for red accent
+        is_new = len(out) < 4
+        out.append(
+            {
+                "id": deal.get("id"),
+                "title": title,
+                "short_title": short,
+                "price": price,
+                "was": float(deal.get("was") or 0),
+                "off": int(deal.get("off") or 0),
+                "badge": deal.get("badge") or "",
+                "line": deal.get("line") or "",
+                "detail": deal.get("detail") or deal.get("fit") or "",
+                "fit": deal.get("fit") or "",
+                "asOf": deal.get("asOf") or "",
+                "stale": bool(deal.get("stale")),
+                "image": deal.get("image") or "",
+                "amazon_url": deal.get("amazon_url") or "#",
+                "rel_time": relative_time_label(deal),
+                "event": event,
+                "is_new": is_new,
+            }
+        )
+    return out
+
+
 def visible_nav_cats(counts: dict) -> list[dict]:
     """Keep All + categories with ≥1 live deal; hide empty Soon slots."""
     out = []
@@ -659,6 +725,7 @@ def home():
         cat = "all"
         feed = attach_manage_flags(sort_feed(merged, sort))
         featured_list = pick_featured(feed, 3) if not needle else []
+    live_activity = build_live_activity(merged, 16)
     return render_template(
         "browse.html",
         deals=feed,
@@ -670,6 +737,7 @@ def home():
         sort=sort,
         featured=featured_list[0] if featured_list else None,
         featured_list=featured_list,
+        live_activity=live_activity,
     )
 
 
