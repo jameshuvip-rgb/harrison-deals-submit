@@ -415,15 +415,8 @@ def build_live_activity(merged: list[dict], limit: int = 16) -> list[dict]:
 
 
 def visible_nav_cats(counts: dict) -> list[dict]:
-    """Keep All + categories with ≥1 live deal; hide empty Soon slots."""
-    out = []
-    for cat in NAV_CATS:
-        if cat["id"] == "all":
-            out.append(cat)
-            continue
-        if int(counts.get(cat["id"], 0) or 0) > 0:
-            out.append(cat)
-    return out
+    """Always list every department; empty ones keep Coming soon blurbs."""
+    return list(NAV_CATS)
 
 
 
@@ -720,11 +713,6 @@ def home():
             pool = attach_manage_flags(sort_feed(merged, "latest"))
         featured_list = pick_featured(pool, 3)
     nav = visible_nav_cats(counts)
-    # If current cat was hidden (empty), bounce to all
-    if cat != "all" and cat not in {c["id"] for c in nav}:
-        cat = "all"
-        feed = attach_manage_flags(sort_feed(merged, sort))
-        featured_list = pick_featured(feed, 3) if not needle else []
     live_activity = build_live_activity(merged, 16)
     return render_template(
         "browse.html",
