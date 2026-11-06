@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Harrison Deals · Uniquely Canadian</title>
+<style>
+  :root { color-scheme: light; --bg:#f3f3f3; --card:#fff; --ink:#171717; --muted:#737373; --line:#e5e5e5; --red:#E50914; --price:#c41e3a; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:var(--bg); color:var(--ink); }
+  a { color: inherit; }
+  .site-header { background:#fff; border-bottom:1px solid var(--line); }
+  .top { display:flex; align-items:center; gap:16px; padding:12px 20px 10px; flex-wrap:wrap; }
+  .brand { flex:0 0 auto; text-decoration:none; }
+  .brand .name { color:var(--red); font-weight:900; font-size:22px; letter-spacing:-0.02em; line-height:1; }
+  .brand .tag { color:var(--muted); font-size:11px; margin-top:2px; }
+  .search { flex:1 1 280px; min-width:200px; max-width:560px; position:relative; }
+  .search input { width:100%; height:40px; border-radius:999px; border:1px solid #d4d4d4; padding:0 16px; font:inherit; font-size:14px; outline:none; }
+  .actions { display:flex; align-items:center; gap:8px; margin-left:auto; }
+  .btn { appearance:none; border:0; border-radius:6px; background:var(--red); color:#fff; font-weight:700; padding:8px 12px; cursor:pointer; font-size:12px; text-decoration:none; display:inline-block; }
+  .btn.ghost { background:#fff; color:#171717; border:1px solid #d4d4d4; }
+  .layout { display:flex; align-items:stretch; min-height:calc(100vh - 88px); }
+  aside { width:248px; flex:0 0 248px; background:#fff; border-right:1px solid var(--line); padding:10px 6px 24px; }
+  .dept-label { font-size:10px; font-weight:700; color:var(--muted); letter-spacing:0.08em; padding:0 8px 8px; }
+  .cat { width:100%; text-align:left; background:transparent; color:var(--ink); border:1px solid transparent; border-radius:8px; padding:8px; cursor:pointer; margin-bottom:2px; display:flex; align-items:center; gap:10px; text-decoration:none; }
+  .cat.on { background:#f3f3f3; border-color:#e0e0e0; }
+  .cat.empty { opacity:0.72; }
+  .ico { width:28px; height:28px; border-radius:999px; background:#f6f6f6; display:inline-flex; align-items:center; justify-content:center; font-size:14px; flex:0 0 auto; }
+  .cat-title { font-size:13px; font-weight:700; line-height:1.2; }
+  .cat-blurb { font-size:11px; color:#8a8a8a; margin-top:1px; }
+  .chips { display:none; background:#fff; border-bottom:1px solid var(--line); padding:10px 0; }
+  .chips-inner { display:flex; gap:8px; overflow-x:auto; padding:0 14px; }
+  .chip { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; background:#f5f5f5; color:#404040; border:1px solid var(--line); border-radius:999px; padding:8px 12px; text-decoration:none; font-size:12px; font-weight:600; white-space:nowrap; }
+  .chip.on { background:#171717; color:#fff; border-color:#171717; }
+  main { flex:1 1 auto; min-width:0; padding:16px 16px 36px; }
+  .headline { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+  .headline h1 { font-size:22px; font-weight:800; margin:0; }
+  .headline p { font-size:12px; color:var(--muted); margin:2px 0 0; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:12px; }
+  .card { display:flex; flex-direction:column; background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden; text-decoration:none; color:inherit; }
+  .card-top { padding:8px 10px 6px; display:flex; align-items:center; justify-content:flex-end; min-height:28px; }
+  .pill { display:inline-block; background:var(--red); color:#fff; font-weight:700; font-size:10px; padding:2px 6px; border-radius:3px; line-height:1.2; }
+  .thumb { width:100%; height:120px; background:#fafafa; border-bottom:1px solid #ececec; display:flex; align-items:center; justify-content:center; }
+  .initials { width:72px; height:72px; border-radius:10px; background:linear-gradient(145deg,#e5e5e5,#f5f5f5); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; color:#525252; }
+  .card-body { padding:8px 10px 10px; }
+  .title { font-size:13px; font-weight:700; line-height:1.3; margin-bottom:6px; min-height:34px; }
+  .prices { display:flex; align-items:baseline; gap:6px; }
+  .now { font-size:16px; font-weight:800; color:var(--price); }
+  .now.stale { color:var(--muted); }
+  .was { font-size:11px; color:#a3a3a3; text-decoration:line-through; }
+  .asof { font-size:10px; color:var(--muted); margin-top:4px; }
+  .asof.stale { font-style:italic; color:#a3a3a3; }
+  .fit { font-size:11px; color:var(--muted); margin-top:4px; }
+  .featured { width:100%; display:flex; gap:16px; align-items:stretch; background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-bottom:16px; text-decoration:none; color:inherit; }
+  .featured .thumb { flex:0 0 200px; width:200px; height:220px; border-bottom:0; border-right:1px solid #ececec; }
+  .featured .copy { flex:1 1 220px; padding:16px 18px; min-width:200px; }
+  .featured h2 { font-size:20px; font-weight:800; line-height:1.25; margin:0 0 6px; }
+  .featured .line { font-size:13px; color:#525252; margin-bottom:10px; }
+  .featured .now { font-size:28px; font-weight:900; }
+  .empty { border:1px dashed #d4d4d4; border-radius:12px; padding:48px 20px; text-align:center; color:var(--muted); background:#fff; }
+  .count { margin-top:18px; color:#a3a3a3; font-size:12px; text-align:center; }
+  footer { margin-top:28px; padding-top:20px; border-top:1px solid var(--line); font-size:11px; color:#a3a3a3; line-height:1.45; }
+  footer .row { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px; font-size:13px; color:#525252; }
+  @media (max-width:900px) {
+    .top { padding:12px 14px 8px; }
+    .brand .name { font-size:20px; }
+    .search { flex:1 1 100%; max-width:none; }
+    aside { display:none; }
+    .chips { display:block; }
+    main { padding:14px 12px 36px; }
+    .featured { flex-direction:column; gap:0; }
+    .featured .thumb { flex:0 0 auto; width:100%; height:220px; border-right:0; border-bottom:1px solid #ececec; }
+  }
+</style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="top">
+      <a class="brand" href="{{ url_for('home') }}">
+        <div class="name">HARRISON</div>
+        <div class="tag">Deals · Uniquely Canadian</div>
+      </a>
+      <form class="search" method="get" action="{{ url_for('home') }}">
+        {% if cat and cat != 'all' %}<input type="hidden" name="cat" value="{{ cat }}"/>{% endif %}
+        <input type="search" name="q" value="{{ q }}" placeholder="e.g. cabin filter, Tesla, fridge bracket" aria-label="Search deals"/>
+      </form>
+      <div class="actions">
+        <a class="btn" href="{{ url_for('post_deal') }}">+ Post Deal</a>
+        {% if session.email %}
+          <a class="btn ghost" href="{{ url_for('my_deals') }}">My deals</a>
+          <a class="btn ghost" href="{{ url_for('logout') }}">Log out</a>
+        {% else %}
+          <a class="btn ghost" href="{{ url_for('login') }}">Log in</a>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+  <div class="chips">
+    <div class="chips-inner">
+      {% for f in nav_cats %}
+        {% set count = counts.get(f.id, 0) if f.id != 'all' else counts.get('all', 0) %}
+        <a class="chip{% if cat == f.id %} on{% endif %}" href="{{ url_for('home', cat=none if f.id == 'all' else f.id, q=q or none) }}">
+          <span>{{ f.icon }}</span><span>{{ f.label }}</span>{% if f.id != 'all' and count == 0 %}<span>Soon</span>{% endif %}
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="layout">
+    <aside>
+      <div class="dept-label">DEPARTMENT</div>
+      {% for f in nav_cats %}
+        {% set count = counts.get(f.id, 0) if f.id != 'all' else counts.get('all', 0) %}
+        {% set empty = f.id != 'all' and count == 0 %}
+        <a class="cat{% if cat == f.id %} on{% endif %}{% if empty %} empty{% endif %}" href="{{ url_for('home', cat=none if f.id == 'all' else f.id, q=q or none) }}">
+          <span class="ico">{{ f.icon }}</span>
+          <span>
+            <div class="cat-title">{{ f.label }}</div>
+            <div class="cat-blurb">{% if empty %}Soon{% else %}{{ f.blurb }}{% endif %}</div>
+          </span>
+        </a>
+      {% endfor %}
+    </aside>
+    <main>
+      <div class="headline">
+        <div>
+          <h1>Hot Deals</h1>
+          <p>
+            {% if cat == 'all' %}All departments{% else %}{{ nav_cats | selectattr('id', 'equalto', cat) | map(attribute='label') | first }}{% endif %}
+            {% if q %} · “{{ q }}”{% endif %}
+          </p>
+        </div>
+        <a class="btn" href="{{ url_for('post_deal') }}">+ Post Deal</a>
+      </div>
+
+      {% if featured %}
+        <a class="featured" href="{{ featured.amazon_url }}" target="_blank" rel="noopener noreferrer">
+          <div class="thumb"><div class="initials">{{ featured.initials }}</div></div>
+          <div class="copy">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+              <span class="pill">Today's pick</span>
+              {% if featured.badge %}<span class="pill">{{ featured.badge }}</span>{% endif %}
+            </div>
+            <h2>{{ featured.title }}</h2>
+            <div class="line">{{ featured.line }}</div>
+            <div class="prices" style="margin-bottom:4px;">
+              <span class="now{% if featured.stale %} stale{% endif %}">${{ '%.2f'|format(featured.price) }}</span>
+              <span class="was">${{ '%.2f'|format(featured.was) }}</span>
+            </div>
+            <div class="asof{% if featured.stale %} stale{% endif %}">{% if featured.stale %}Price may be outdated{% else %}Price as of {{ featured.asOf }}{% endif %}</div>
+            <div class="fit" style="margin:10px 0 12px;color:#404040;font-size:13px;line-height:1.45;">{{ featured.detail }}</div>
+            <span class="btn">Get this deal on Amazon →</span>
+          </div>
+        </a>
+      {% endif %}
+
+      {% if not deals %}
+        <div class="empty">
+          {% if q %}
+            <div style="font-size:15px;font-weight:700;color:#525252;margin-bottom:6px;">No matches</div>
+            <div>Try another keyword.</div>
+          {% else %}
+            <div style="font-size:15px;font-weight:700;color:#525252;margin-bottom:6px;">Soon</div>
+            <div>No deals in this department yet.</div>
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="grid">
+          {% for d in deals %}
+            <a class="card" href="{{ d.amazon_url }}" target="_blank" rel="noopener noreferrer">
+              <div class="card-top">{% if d.badge %}<span class="pill">{{ d.badge }}</span>{% endif %}</div>
+              <div class="thumb"><div class="initials">{{ d.initials }}</div></div>
+              <div class="card-body">
+                <div class="title">{{ d.title }}</div>
+                <div class="prices">
+                  <span class="now{% if d.stale %} stale{% endif %}">${{ '%.2f'|format(d.price) }}</span>
+                  <span class="was">${{ '%.2f'|format(d.was) }}</span>
+                </div>
+                <div class="asof{% if d.stale %} stale{% endif %}">{% if d.stale %}Price may be outdated{% else %}Price as of {{ d.asOf }}{% endif %}</div>
+                <div class="fit">{{ d.fit }}</div>
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+        <div class="count">{{ deals|length }} deals · tap a card for Amazon.ca</div>
+      {% endif %}
+
+      <footer>
+        <div class="row">
+          <span>Selling on Amazon.ca?</span>
+          <a class="btn ghost" href="{{ url_for('post_deal') }}">Post a deal</a>
+        </div>
+        Prices checked as of each card's as-of date. Amazon may change them anytime — confirm on Amazon.ca before you buy.
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

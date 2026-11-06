@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from flask import (
     Flask,
@@ -51,6 +52,75 @@ COVER_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 for d in (DATA, INBOX, UPLOADS):
     d.mkdir(parents=True, exist_ok=True)
+
+SEED_DEALS_PATH = ROOT / "deals.json"
+
+NAV_CATS = [
+    {"id": "all", "label": "All", "icon": "◎", "blurb": "Every live deal"},
+    {"id": "automotive", "label": "Automotive", "icon": "🚗", "blurb": "Filters & parts"},
+    {"id": "home", "label": "Home", "icon": "🏠", "blurb": "Appliance parts & more"},
+    {"id": "sports", "label": "Sports", "icon": "🏃", "blurb": "Bike & outdoor"},
+    {"id": "electronics", "label": "Electronics", "icon": "📱", "blurb": "Soon"},
+    {"id": "tools", "label": "Tools & DIY", "icon": "🔧", "blurb": "Soon"},
+    {"id": "beauty", "label": "Beauty", "icon": "✨", "blurb": "Soon"},
+    {"id": "baby", "label": "Baby", "icon": "🍼", "blurb": "Soon"},
+    {"id": "clothing", "label": "Clothing", "icon": "👕", "blurb": "Soon"},
+    {"id": "grocery", "label": "Grocery", "icon": "🛒", "blurb": "Soon"},
+    {"id": "health", "label": "Health", "icon": "💊", "blurb": "Soon"},
+    {"id": "pets", "label": "Pets", "icon": "🐾", "blurb": "Pond filter media"},
+]
+
+
+def load_seed_deals() -> list[dict]:
+    if not SEED_DEALS_PATH.exists():
+        return []
+    raw = json.loads(SEED_DEALS_PATH.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        return []
+    return [d for d in raw if isinstance(d, dict)]
+
+
+def off_pct(price: float, was: float) -> int:
+    if was <= 0 or price >= was:
+        return 0
+    return round(((was - price) / was) * 100)
+
+
+def amazon_href(deal: dict) -> str:
+    asin = str(deal.get("id") or "")
+    base = str(deal.get("href") or f"https://www.amazon.ca/dp/{asin}")
+    parsed = urlparse(base)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query["utm_source"] = "harrison"
+    query["utm_medium"] = "deals"
+    query["utm_campaign"] = asin
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def deal_initials(title: str) -> str:
+    words = [w for w in str(title).split() if w]
+    return "".join(w[0] for w in words[:2]).upper() or "HD"
+
+
+def enrich_deal(deal: dict) -> dict:
+    price = float(deal.get("price") or 0)
+    was = float(deal.get("was") or 0)
+    pct = off_pct(price, was)
+    out = dict(deal)
+    out["price"] = price
+    out["was"] = was
+    out["off"] = pct
+    out["amazon_url"] = amazon_href(deal)
+    out["initials"] = deal_initials(deal.get("title") or "")
+    if deal.get("promo") == "bxgy":
+        out["badge"] = f"BXGY ~{pct or 30}%"
+    elif pct:
+        out["badge"] = f"{pct}% OFF"
+    else:
+        out["badge"] = ""
+    return out
+
+
 
 
 def _load_secret_key() -> str:
@@ -278,10 +348,43 @@ def wants_json() -> bool:
 
 
 @app.get("/")
+@app.get("/browse")
 def home():
-    if session.get("email"):
-        return redirect(url_for("my_deals"))
-    return redirect(url_for("login"))
+    cat = (request.args.get("cat") or "all").strip().lower()
+    q = (request.args.get("q") or "").strip()
+    seeded = [enrich_deal(d) for d in load_seed_deals() if d.get("live") is not False]
+    counts = {"all": len(seeded)}
+    for item in seeded:
+        key = str(item.get("category") or "")
+        counts[key] = counts.get(key, 0) + 1
+    needle = q.lower()
+    feed = seeded
+    if cat and cat != "all":
+        feed = [d for d in feed if d.get("category") == cat]
+    if needle:
+        feed = [
+            d
+            for d in feed
+            if needle in str(d.get("title") or "").lower()
+            or needle in str(d.get("line") or "").lower()
+            or needle in str(d.get("fit") or "").lower()
+            or needle in str(d.get("id") or "").lower()
+        ]
+    feed = sorted(feed, key=lambda d: int(d.get("posted") or 0), reverse=True)
+    featured = None
+    if not needle and (not cat or cat == "all"):
+        featured = next((d for d in seeded if d.get("featured")), seeded[0] if seeded else None)
+    elif not needle:
+        featured = next((d for d in feed if d.get("featured")), None)
+    return render_template(
+        "browse.html",
+        deals=feed,
+        nav_cats=NAV_CATS,
+        counts=counts,
+        cat=cat or "all",
+        q=q,
+        featured=featured,
+    )
 
 
 @app.get("/health")
