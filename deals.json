@@ -15,7 +15,8 @@
     "posted": 10,
     "asOf": "Nov 5",
     "featured": true,
-    "staffPick": true
+    "staffPick": true,
+    "image": "/static/deals/B0HHJ93L1P.jpg"
   },
   {
     "id": "B0HJQDLJK3",
@@ -32,7 +33,8 @@
     "ago": "1h ago",
     "posted": 9,
     "asOf": "Nov 5",
-    "staffPick": true
+    "staffPick": true,
+    "image": "/static/deals/B0HJQDLJK3.jpg"
   },
   {
     "id": "B0HJYJWJVY",
@@ -48,7 +50,8 @@
     "promo": "percent",
     "ago": "2h ago",
     "posted": 8,
-    "asOf": "Nov 5"
+    "asOf": "Nov 5",
+    "image": "/static/deals/B0HJYJWJVY.jpg"
   },
   {
     "id": "B0HKH5HMW3",
@@ -64,7 +67,8 @@
     "promo": "percent",
     "ago": "3h ago",
     "posted": 7,
-    "asOf": "Nov 5"
+    "asOf": "Nov 5",
+    "image": "/static/deals/B0HKH5HMW3.jpg"
   },
   {
     "id": "B0HK3JGYLN",
@@ -80,7 +84,8 @@
     "promo": "percent",
     "ago": "4h ago",
     "posted": 6,
-    "asOf": "Nov 5"
+    "asOf": "Nov 5",
+    "image": "/static/deals/B0HK3JGYLN.jpg"
   },
   {
     "id": "B0HK3LT1NY",
@@ -96,7 +101,8 @@
     "promo": "percent",
     "ago": "4h ago",
     "posted": 7,
-    "asOf": "Nov 5"
+    "asOf": "Nov 5",
+    "image": "/static/deals/B0HK3LT1NY.jpg"
   },
   {
     "id": "B0HKHS78MR",
@@ -113,7 +119,8 @@
     "ago": "5h ago",
     "posted": 5,
     "asOf": "Nov 5",
-    "staffPick": true
+    "staffPick": true,
+    "image": "/static/deals/B0HKHS78MR.jpg"
   },
   {
     "id": "B0HC3N5BHW",
@@ -130,7 +137,8 @@
     "ago": "5h ago",
     "posted": 5,
     "asOf": "Nov 5",
-    "stale": true
+    "stale": true,
+    "image": "/static/deals/B0HC3N5BHW.jpg"
   },
   {
     "id": "B0HBVT6QFK",
@@ -162,7 +170,8 @@
     "promo": "bxgy",
     "ago": "6h ago",
     "posted": 4,
-    "asOf": "Nov 5"
+    "asOf": "Nov 5",
+    "image": "/static/deals/B0HF7Q25KL.jpg"
   },
   {
     "id": "B0HF81MTRH",
@@ -178,7 +187,8 @@
     "promo": "bxgy",
     "ago": "7h ago",
     "posted": 3,
-    "asOf": "Nov 5"
+    "asOf": "Nov 5",
+    "image": "/static/deals/B0HF81MTRH.jpg"
   },
   {
     "id": "B0HF81MWNT",
@@ -194,7 +204,8 @@
     "promo": "bxgy",
     "ago": "8h ago",
     "posted": 2,
-    "asOf": "Nov 5"
+    "asOf": "Nov 5",
+    "image": "/static/deals/B0HF81MWNT.jpg"
   },
   {
     "id": "B0HF85NJWP",
@@ -210,7 +221,8 @@
     "promo": "bxgy",
     "ago": "9h ago",
     "posted": 1,
-    "asOf": "Nov 5"
+    "asOf": "Nov 5",
+    "image": "/static/deals/B0HF85NJWP.jpg"
   },
   {
     "id": "B0HF84RP4V",
