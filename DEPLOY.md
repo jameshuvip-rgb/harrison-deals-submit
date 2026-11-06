@@ -19,7 +19,7 @@ Render free web services have an **ephemeral filesystem**. That means:
 | **buildCommand** | `pip install -r requirements.txt` |
 | **startCommand** | `gunicorn -b 0.0.0.0:$PORT app:app` |
 
-`Procfile` and `render.yaml` use the same start command. Runtime hint: `runtime.txt` → `python-3.12.8`.
+`Procfile` and `render.yaml` use the same start command. Runtime hint: `runtime.txt` → `python-3.12.7`.
 
 ## Environment variables
 
