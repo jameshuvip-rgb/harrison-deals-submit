@@ -4,7 +4,7 @@
   <h1>Edit deal</h1>
   <p class="sub">{% if editing_as_admin %}Admin edit — owner stays {{ deal.owner_email }}.{% else %}Only you can change this listing because it was posted with {{ session.email }}.{% endif %}</p>
   {% if error %}<div class="msg err" role="alert">{{ error }}</div>{% endif %}
-  <form class="card" method="post" enctype="multipart/form-data">
+  <form class="card" method="post" enctype="multipart/form-data" data-deal-id="{{ deal.id }}">
     {% set cover_required = false %}
     {% set current_cover = cover_src %}
     {% set cover_hint = 'One photo only. Choose a file to replace the current cover when you save, or leave it unchanged. Clear removes it.' if cover_src else 'Upload a product photo (JPG, PNG, WEBP, or GIF, max 8MB).' %}

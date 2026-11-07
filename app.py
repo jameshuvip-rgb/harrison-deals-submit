@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import html
 import json
 import os
 import re
@@ -78,6 +79,8 @@ LOOKUP_COVER_TTL = 30 * 60
 AMAZON_HTML_TIMEOUT = 6
 AMAZON_IMAGE_TIMEOUT = 5
 AMAZON_HTML_MAX = 1_500_000
+# One product-page GET, then at most two image GETs (best URL, then one fallback).
+AMAZON_IMAGE_TRIES = 2
 # One browser-like User-Agent, one attempt. A custom bot UA is blocked immediately.
 AMAZON_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -87,6 +90,7 @@ AMAZON_UA = (
 MSG_FILLED = "Filled from link"
 MSG_NO_PRICE = "Couldn't fetch price — enter manually"
 MSG_NO_COVER = "Cover unavailable — upload your own"
+MSG_DUPLICATE = "This product is already posted."
 DEAL_KEY_RE = re.compile(r"^(?:user:[1-9]\d*|seed:[A-Za-z0-9_-]{1,64})$")
 AMAZON_ASIN_RE = re.compile(
     r"(?:/dp/|/gp/product/|/gp/aw/d/|/product/)([A-Za-z0-9]{10})(?:[/?#]|$)",
@@ -1185,6 +1189,140 @@ def amazon_marketplace(url: str) -> tuple[str, str] | None:
     return asin, market
 
 
+def normalize_asin(raw: str | None) -> str | None:
+    asin = (raw or "").strip().upper()
+    if ASIN_RE.match(asin):
+        return asin
+    return None
+
+
+def product_identity(asin: str | None, amazon_url: str | None) -> tuple[set[str], set[tuple[str, str]]]:
+    """ASINs plus (marketplace, ASIN) pairs that identify one product.
+
+    The form ASIN and the ASIN parsed from an amazon.ca / amazon.com URL both count.
+    URL identity is marketplace + ASIN, so tracking params and /dp/ vs /gp/product/ do not matter.
+    """
+    asins: set[str] = set()
+    markets: set[tuple[str, str]] = set()
+    normalized = normalize_asin(asin)
+    if normalized:
+        asins.add(normalized)
+    parsed = amazon_marketplace(amazon_url or "")
+    if parsed:
+        asins.add(parsed[0])
+        markets.add((parsed[1], parsed[0]))
+    return asins, markets
+
+
+def visible_seed_asins() -> set[str]:
+    """Seed catalog ids currently shown on the site. Deleted or unpublished seeds are excluded."""
+    found: set[str] = set()
+    for deal in apply_seed_overlay(load_seed_deals()):
+        if deal.get("live") is False:
+            continue
+        asin = normalize_asin(str(deal.get("id") or ""))
+        if asin:
+            found.add(asin)
+    return found
+
+
+def duplicate_product_conflict(
+    asin: str | None,
+    amazon_url: str | None,
+    ignore_deal_id: int | None = None,
+    ignore_seed_id: str | None = None,
+) -> bool:
+    """True when this product is already an active user deal or a visible seed.
+
+    Editing a deal ignores that deal's current ASIN and URL, so saving the same
+    product is allowed. Only a different deal or seed blocks the change.
+    """
+    asins, markets = product_identity(asin, amazon_url)
+    if ignore_deal_id is not None:
+        row = get_db().execute(
+            "SELECT id, asin, amazon_url FROM deals WHERE id = ? AND deleted_at IS NULL",
+            (int(ignore_deal_id),),
+        ).fetchone()
+        if row is not None:
+            own_asins, own_markets = product_identity(row["asin"], row["amazon_url"])
+            asins -= own_asins
+            markets -= own_markets
+            markets = {pair for pair in markets if pair[1] not in own_asins}
+    if not asins and not markets:
+        return False
+
+    rows = get_db().execute(
+        """
+        SELECT id, asin, amazon_url FROM deals
+        WHERE deleted_at IS NULL
+        """
+    ).fetchall()
+    for row in rows:
+        if ignore_deal_id is not None and int(row["id"]) == int(ignore_deal_id):
+            continue
+        row_asins, row_markets = product_identity(row["asin"], row["amazon_url"])
+        if asins & row_asins or markets & row_markets:
+            return True
+
+    seeds = visible_seed_asins()
+    if ignore_seed_id:
+        seed_asin = normalize_asin(ignore_seed_id)
+        if seed_asin:
+            seeds.discard(seed_asin)
+    return bool(asins & seeds)
+
+
+def ensure_unique_product(fields: dict, ignore_deal_id: int | None = None) -> None:
+    if duplicate_product_conflict(
+        fields.get("asin"),
+        fields.get("amazon_url"),
+        ignore_deal_id=ignore_deal_id,
+    ):
+        raise ValueError(MSG_DUPLICATE)
+
+
+def _manageable_deal_id(raw) -> int | None:
+    """Deal id the current user may edit, used only to soften the lookup warning."""
+    if raw is None or raw == "":
+        return None
+    try:
+        deal_id = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if deal_id <= 0:
+        return None
+    row = get_db().execute("SELECT * FROM deals WHERE id = ?", (deal_id,)).fetchone()
+    if row is None or row["deleted_at"]:
+        return None
+    if not can_manage_deal(row):
+        return None
+    return deal_id
+
+
+def flag_duplicate_lookup(
+    result: dict,
+    raw_url: str,
+    ignore_deal_id: int | None = None,
+    ignore_seed_id: str | None = None,
+) -> None:
+    """Soft warning. Lookup still fills ASIN; submit is what rejects the duplicate."""
+    if not result.get("ok"):
+        return
+    conflict = duplicate_product_conflict(
+        result.get("asin"),
+        raw_url,
+        ignore_deal_id=ignore_deal_id,
+        ignore_seed_id=ignore_seed_id,
+    )
+    result["duplicate"] = bool(conflict)
+    if not conflict:
+        return
+    messages = list(result.get("messages") or [])
+    if MSG_DUPLICATE not in messages:
+        messages.append(MSG_DUPLICATE)
+    result["messages"] = messages
+
+
 def _html_text(fragment: str) -> str:
     text = re.sub(r"<[^>]+>", " ", fragment or "")
     text = (
@@ -1274,6 +1412,262 @@ def _amazon_image_host_ok(host: str) -> bool:
     return any(host == suffix or host.endswith("." + suffix) for suffix in suffixes)
 
 
+_MAIN_IMAGE_ID_RE = re.compile(
+    r"""\bid\s*=\s*(['"])(?:landingImage|imgBlkFront|ebooksImgBlkFront|main-image|img-canvas)\1""",
+    re.I,
+)
+_AMAZON_I_PATH_RE = re.compile(
+    r"^(?P<prefix>/images/I/)(?P<image_id>[A-Za-z0-9%+\-]+?)(?P<mod>\._[^/]+)?\.(?P<ext>jpg|jpeg|png|webp|gif)$",
+    re.I,
+)
+_UNSIZED_AMAZON_I_RE = re.compile(
+    r"/images/I/[A-Za-z0-9%+\-]+\.(?:jpg|jpeg|png|webp|gif)$",
+    re.I,
+)
+_AMAZON_EDGE_RE = re.compile(r"(?:SL|UL|SX|SY|SS|US|UX|UY|SR)(\d{2,4})", re.I)
+_SKIP_IMAGE_MARKERS = (
+    "sprite",
+    "play-button",
+    "overlay-thumb",
+    "transparent-pixel",
+    "grey-pixel",
+    "gray-pixel",
+    "spinner",
+    "loading",
+    "pixel.gif",
+    "blank.gif",
+)
+
+
+def _tag_attr(tag: str, name: str) -> str | None:
+    match = re.search(
+        rf"""\b{re.escape(name)}\s*=\s*(['"])(.*?)\1""",
+        tag,
+        re.I | re.S,
+    )
+    if not match:
+        return None
+    return match.group(2)
+
+
+def _unescape_amazon_url(raw: str) -> str:
+    text = (raw or "").strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+        text = text[1:-1]
+    text = (
+        text.replace("\\/", "/")
+        .replace("\\u002f", "/")
+        .replace("\\u002F", "/")
+        .replace("\\u0026", "&")
+    )
+    text = html.unescape(text).strip()
+    if text.startswith("//"):
+        text = "https:" + text
+    return text
+
+
+def _valid_amazon_image_url(raw: str) -> str | None:
+    text = _unescape_amazon_url(raw)
+    if not text or text.lower().startswith("http://"):
+        return None
+    text = text.split()[0].rstrip("\\',);>")
+    parsed = urlparse(text)
+    if parsed.scheme != "https" or not _amazon_image_host_ok(parsed.hostname or ""):
+        return None
+    path = (parsed.path or "").lower()
+    if "/images/" not in path:
+        return None
+    if any(marker in path for marker in _SKIP_IMAGE_MARKERS):
+        return None
+    if not re.search(r"\.(?:jpg|jpeg|png|webp|gif)$", path):
+        return None
+    return urlunparse(parsed._replace(fragment=""))
+
+
+def _declared_edge(path: str) -> int | None:
+    if _UNSIZED_AMAZON_I_RE.search(path or ""):
+        return None
+    nums = [int(n) for n in _AMAZON_EDGE_RE.findall(path or "")]
+    if not nums:
+        return None
+    return max(nums)
+
+
+def _amazon_image_pixels(url: str) -> int:
+    path = urlparse(url).path or ""
+    if _UNSIZED_AMAZON_I_RE.search(path):
+        return 2560 * 2560
+    edge = _declared_edge(path)
+    if edge:
+        return edge * edge
+    if "._ac_" in path.lower():
+        return 1000 * 1000
+    return 800 * 800
+
+
+def _amazon_image_id(url: str) -> str | None:
+    match = _AMAZON_I_PATH_RE.match(urlparse(url).path or "")
+    if not match:
+        return None
+    return match.group("image_id").lower()
+
+
+def _sl1500_variant(url: str) -> str | None:
+    """Larger sibling of a sized /images/I/ URL. Unsized and already-large URLs stay put."""
+    parsed = urlparse(url)
+    match = _AMAZON_I_PATH_RE.match(parsed.path or "")
+    if not match or not match.group("mod"):
+        return None
+    edge = _declared_edge(parsed.path or "")
+    if edge is None or edge >= 1500:
+        return None
+    larger_path = (
+        f"{match.group('prefix')}{match.group('image_id')}._AC_SL1500_.{match.group('ext')}"
+    )
+    if larger_path == parsed.path:
+        return None
+    return urlunparse(parsed._replace(path=larger_path, query="", fragment=""))
+
+
+def _dynamic_image_pairs(raw: str) -> list[tuple[str, int]]:
+    text = html.unescape(raw or "").replace("\\/", "/")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, dict):
+        return []
+    pairs: list[tuple[str, int]] = []
+    for key, dims in data.items():
+        pixels = 0
+        if isinstance(dims, (list, tuple)) and len(dims) >= 2:
+            try:
+                width = int(float(dims[0]))
+                height = int(float(dims[1]))
+            except (TypeError, ValueError):
+                width = height = 0
+            if width > 0 and height > 0:
+                pixels = width * height
+        pairs.append((str(key), pixels))
+    return pairs
+
+
+def _amazon_cover_urls(page_html: str) -> list[str]:
+    """Product-image URLs, largest main image first.
+
+    Prefers landingImage / data-old-hires / the first hiRes over later gallery
+    or carousel images, and within that set prefers the biggest CDN size.
+    A sized image under 1500px also yields one synthesized ._AC_SL1500_ sibling.
+    """
+    if not page_html:
+        return []
+    ranked: dict[str, int] = {}
+
+    def add(raw: str | None, bonus: int, pixels: int | None = None) -> None:
+        if not raw:
+            return
+        url = _valid_amazon_image_url(raw)
+        if not url:
+            return
+        area = pixels if pixels and pixels > 0 else _amazon_image_pixels(url)
+        source_bonus = 1_000 if area < 64 * 64 else bonus
+        ranked[url] = max(ranked.get(url, 0), source_bonus + area)
+        if source_bonus < 1_000_000:
+            return
+        larger = _sl1500_variant(url)
+        if not larger or larger == url:
+            return
+        larger_area = _amazon_image_pixels(larger)
+        if larger_area > area:
+            ranked[larger] = max(ranked.get(larger, 0), source_bonus + larger_area)
+
+    found_main = False
+    for tag in re.findall(r"<img\b[^>]*>", page_html, flags=re.I | re.S):
+        if not _MAIN_IMAGE_ID_RE.search(tag):
+            continue
+        found_main = True
+        add(_tag_attr(tag, "data-old-hires"), 80_000_000)
+        add(_tag_attr(tag, "data-a-hires"), 80_000_000)
+        dynamic = _tag_attr(tag, "data-a-dynamic-image")
+        if dynamic:
+            for image_url, dims in _dynamic_image_pairs(dynamic):
+                add(image_url, 50_000_000, pixels=dims or None)
+        add(_tag_attr(tag, "src"), 50_000_000)
+
+    if not found_main:
+        dynamic_match = re.search(
+            r"""data-a-dynamic-image\s*=\s*(['"])(.*?)\1""",
+            page_html,
+            re.I | re.S,
+        )
+        if dynamic_match:
+            for image_url, dims in _dynamic_image_pairs(dynamic_match.group(2)):
+                add(image_url, 40_000_000, pixels=dims or None)
+
+    for attr_name in ("data-old-hires", "data-a-hires"):
+        for match in re.finditer(
+            rf"""\b{attr_name}\s*=\s*(['"])(https?:[^'"]+)\1""",
+            page_html,
+            re.I,
+        ):
+            add(match.group(2), 80_000_000)
+
+    hires_matches = list(
+        re.finditer(
+            r"""['"]hiRes['"]\s*:\s*['"](https?:[^'"]+)['"]""",
+            page_html,
+            re.I,
+        )
+    )
+    for index, match in enumerate(hires_matches):
+        add(match.group(1), 50_000_000 if index == 0 else 20_000_000)
+
+    large_matches = list(
+        re.finditer(
+            r"""['"]large['"]\s*:\s*['"](https?:[^'"]+)['"]""",
+            page_html,
+            re.I,
+        )
+    )
+    for index, match in enumerate(large_matches):
+        add(match.group(1), 45_000_000 if index == 0 else 15_000_000)
+
+    for key, bonus in (
+        ("landingImageHiRes", 80_000_000),
+        ("landingImageUrl", 45_000_000),
+        ("mainUrl", 40_000_000),
+    ):
+        for match in re.finditer(
+            rf"""['"]{key}['"]\s*:\s*['"](https?:[^'"]+)['"]""",
+            page_html,
+            re.I,
+        ):
+            add(match.group(1), bonus)
+
+    for tag in re.findall(r"<meta\b[^>]*>", page_html, flags=re.I | re.S):
+        kind = (_tag_attr(tag, "property") or _tag_attr(tag, "name") or "").lower()
+        if kind == "og:image":
+            add(_tag_attr(tag, "content"), 40_000_000)
+    for tag in re.findall(r"<link\b[^>]*>", page_html, flags=re.I | re.S):
+        if (_tag_attr(tag, "rel") or "").lower() == "image_src":
+            add(_tag_attr(tag, "href"), 35_000_000)
+
+    ordered = sorted(ranked.items(), key=lambda item: item[1], reverse=True)
+    urls = [url for url, _score in ordered]
+    if len(urls) < 2:
+        return urls
+    best_id = _amazon_image_id(urls[0])
+    if not best_id:
+        return urls
+    for index, url in enumerate(urls[1:], start=1):
+        if _amazon_image_id(url) != best_id:
+            continue
+        if index != 1:
+            urls.insert(1, urls.pop(index))
+        break
+    return urls
+
+
 def parse_amazon_html(html: str) -> dict:
     """Pull title, current price, list price, and a main image URL. Empty on a block page."""
     result = {
@@ -1282,6 +1676,7 @@ def parse_amazon_html(html: str) -> dict:
         "deal_price": None,
         "list_price": None,
         "image_url": None,
+        "image_candidates": [],
     }
     if not html:
         return result
@@ -1358,22 +1753,9 @@ def parse_amazon_html(html: str) -> dict:
         list_price = None
     result["list_price"] = list_price
 
-    image = None
-    for pattern in (
-        r'"hiRes"\s*:\s*"(https:[^"]+)"',
-        r'"large"\s*:\s*"(https:[^"]+)"',
-        r'property="og:image"[^>]*content="(https:[^"]+)"',
-        r'content="(https:[^"]+)"[^>]*property="og:image"',
-    ):
-        found = re.search(pattern, html, re.I)
-        if not found:
-            continue
-        candidate = found.group(1).replace("\\/", "/")
-        parsed = urlparse(candidate)
-        if parsed.scheme == "https" and _amazon_image_host_ok(parsed.hostname or ""):
-            image = candidate
-            break
-    result["image_url"] = image
+    urls = _amazon_cover_urls(html)
+    result["image_candidates"] = urls[:AMAZON_IMAGE_TRIES]
+    result["image_url"] = urls[0] if urls else None
     return result
 
 
@@ -1401,13 +1783,15 @@ def _amazon_opener() -> urllib.request.OpenerDirector:
 
 def fetch_amazon_html(url: str, accept_language: str) -> str | None:
     """One polite GET. Any timeout, block, or network error returns None. No retries."""
+    host = urlparse(url).hostname or "www.amazon.com"
     req = urllib.request.Request(
         url,
         headers={
             "User-Agent": AMAZON_UA,
-            "Accept": "text/html,application/xhtml+xml",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": accept_language,
             "Accept-Encoding": "identity",
+            "Referer": f"https://{host}/",
         },
         method="GET",
     )
@@ -1424,17 +1808,20 @@ def fetch_amazon_html(url: str, accept_language: str) -> str | None:
         return None
 
 
-def fetch_amazon_image(url: str) -> bytes | None:
+def fetch_amazon_image(url: str, referer: str | None = None) -> bytes | None:
     parsed = urlparse(url)
     if parsed.scheme != "https" or not _amazon_image_host_ok(parsed.hostname or ""):
         return None
+    headers = {
+        "User-Agent": AMAZON_UA,
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Accept-Encoding": "identity",
+    }
+    if referer:
+        headers["Referer"] = referer
     req = urllib.request.Request(
         url,
-        headers={
-            "User-Agent": AMAZON_UA,
-            "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-            "Accept-Encoding": "identity",
-        },
+        headers=headers,
         method="GET",
     )
     try:
@@ -1457,16 +1844,26 @@ def lookup_amazon_product(url: str, user_id: int | None) -> dict:
     asin, market = parsed
     host = "www.amazon.ca" if market == "ca" else "www.amazon.com"
     language = "en-CA,en;q=0.9" if market == "ca" else "en-US,en;q=0.9"
-    html = fetch_amazon_html(f"https://{host}/dp/{asin}", language)
+    page = f"https://{host}/dp/{asin}"
+    html = fetch_amazon_html(page, language)
     info = parse_amazon_html(html or "")
     cover_token = None
     cover_preview = None
-    if user_id is not None and info.get("image_url") and not info.get("blocked"):
-        blob = fetch_amazon_image(info["image_url"])
-        if blob:
+    if user_id is not None and not info.get("blocked"):
+        candidates: list[str] = []
+        for image_url in info.get("image_candidates") or []:
+            if image_url and image_url not in candidates:
+                candidates.append(image_url)
+        if info.get("image_url") and info["image_url"] not in candidates:
+            candidates.insert(0, info["image_url"])
+        for image_url in candidates[:AMAZON_IMAGE_TRIES]:
+            blob = fetch_amazon_image(image_url, referer=page)
+            if not blob:
+                continue
             saved = save_lookup_cover(user_id, blob)
             if saved:
                 cover_token, cover_preview = saved
+                break
     messages = [MSG_FILLED if info.get("deal_price") is not None else MSG_NO_PRICE]
     if not cover_token:
         messages.append(MSG_NO_COVER)
@@ -1772,11 +2169,28 @@ def api_amazon_lookup():
         return jsonify(ok=False, error="Paste an amazon.ca or amazon.com product link."), 400
     body = request.get_json(silent=True) if request.is_json else None
     raw_url = ""
+    ignore_raw = None
+    seed_raw = None
     if isinstance(body, dict):
         raw_url = body.get("url") or ""
+        ignore_raw = body.get("deal_id")
+        seed_raw = body.get("seed_id")
     if not raw_url:
         raw_url = request.form.get("url") or ""
+        if ignore_raw is None:
+            ignore_raw = request.form.get("deal_id")
+        if seed_raw is None:
+            seed_raw = request.form.get("seed_id")
     result = lookup_amazon_product(str(raw_url), current_user_id())
+    ignore_seed = str(seed_raw or "").strip() or None
+    if ignore_seed and not is_admin():
+        ignore_seed = None
+    flag_duplicate_lookup(
+        result,
+        str(raw_url),
+        ignore_deal_id=_manageable_deal_id(ignore_raw),
+        ignore_seed_id=ignore_seed,
+    )
     status = 200 if result.get("ok") else 400
     return jsonify(result), status
 
@@ -1851,6 +2265,7 @@ def post_deal():
     if request.method == "POST":
         try:
             fields = parse_deal_fields(request.form)
+            ensure_unique_product(fields)
             cover_path = resolve_user_cover(current_user_id())
             if not cover_path:
                 raise ValueError("Cover image is required")
@@ -1935,6 +2350,7 @@ def edit_deal(deal_id: int):
     if request.method == "POST":
         try:
             fields = parse_deal_fields(request.form)
+            ensure_unique_product(fields, ignore_deal_id=deal_id)
             uploaded = save_cover(current_user_id())
             if uploaded:
                 cover_path = uploaded
@@ -2229,6 +2645,7 @@ def api_submit():
         return jsonify(error="Expected form data or JSON"), 400
     try:
         fields = parse_deal_fields(src)
+        ensure_unique_product(fields)
         cover_path = None if request.is_json else resolve_user_cover(current_user_id())
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
