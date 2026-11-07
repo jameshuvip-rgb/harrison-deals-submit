@@ -311,8 +311,17 @@ class AppFlowTests(unittest.TestCase):
         self.assertIn("Today's pick", html)
         self.assertNotIn("height:148px", html)
         self.assertNotIn("hot-pill", html)
+        self.assertNotIn("in 30 min", html)
         self.assertEqual(feat_ids(html), ["B0HC3N5BHW", "B0HF7Q25KL", "B0HF81MTRH"])
         self.assertIn(">Save<", html)
+        self.assertNotIn(">Saved<", html)
+        self.assertNotIn('href="/saved"', html)
+        self.assertEqual(
+            html.count('class="save-row"'),
+            html.count('class="feat-card"') + html.count('class="card" role="button"'),
+        )
+        self.assertIn("'/login?next='", html)
+        self.assertIn("Live updates", html)
 
     def test_search_hides_hot_deals_and_category_stays_in_pool(self):
         search = self._html("/?q=tesla")
@@ -410,6 +419,58 @@ class AppFlowTests(unittest.TestCase):
         html = self._html("/")
         self.assertEqual(feat_ids(html)[0], "B0HF7Q25KL")
         self.assertIn('data-favorites="3"', html)
+
+    def test_saved_page_lists_only_this_users_favorites(self):
+        guest = self.client.get("/saved")
+        self.assertEqual(guest.status_code, 302)
+        self.assertIn("/login", guest.headers["Location"])
+        self.assertIn("next=/saved", guest.headers["Location"])
+
+        self._register()
+        self.client.post("/api/deals/favorite", json={"track_key": "seed:B0HF7Q25KL"})
+        home = self._html("/")
+        self.assertIn('href="/saved"', home)
+        self.assertIn(">Saved<", home)
+        self.assertIn(".feat-card .thumb { width:100%; height:190px;", home)
+        self.assertEqual(home.count('class="feat-card"'), 3)
+        self.assertRegex(
+            home,
+            r'data-save-compact[^>]*data-track="seed:B0HF7Q25KL"[^>]*data-favorited="1"[^>]*>Saved<',
+        )
+        self.assertIn('id="mSave"', home)
+
+        saved = self._html("/saved")
+        self.assertIn("<h1>Saved</h1>", saved)
+        self.assertIn('data-id="B0HF7Q25KL"', saved)
+        self.assertNotIn('data-id="B0HC3N5BHW"', saved)
+        self.assertEqual(saved.count('class="feat-card"'), 0)
+        self.assertNotIn("Live updates", saved)
+        self.assertNotIn("hot-pill", saved)
+        self.assertIn(">Saved<", saved)
+
+        self.client.get("/logout")
+        login = self.client.get("/login?next=/saved")
+        self.assertIn('name="next"', login.get_data(as_text=True))
+        back = self.client.post(
+            "/login",
+            data={"email": "seller@example.com", "password": "password123", "next": "/saved"},
+        )
+        self.assertEqual(back.status_code, 302)
+        self.assertTrue(back.headers["Location"].endswith("/saved"))
+
+        other = hd.app.test_client()
+        self._register("other@example.com", other)
+        other_html = other.get("/saved").get_data(as_text=True)
+        self.assertIn("No saved deals yet", other_html)
+        self.assertNotIn("B0HF7Q25KL", other_html)
+
+        self.client.post("/api/deals/favorite", json={"track_key": "seed:B0HC3N5BHW"})
+        page = self._html("/saved")
+        first, second = re.findall(r'class="card"[^>]*data-id="([^"]+)"', page)
+        self.assertEqual([first, second], ["B0HC3N5BHW", "B0HF7Q25KL"])
+        by_price = self._html("/saved?sort=price")
+        self.assertIn("Price ↑", by_price)
+        self.assertEqual(by_price.count('class="card" role="button"'), 2)
 
     def test_user_deal_is_eligible(self):
         self._register()

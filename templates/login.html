@@ -2,9 +2,12 @@
 {% block title %}Log in — Harrison Deals{% endblock %}
 {% block body %}
   <h1>Log in</h1>
-  <p class="sub">Browsing is open to everyone — no account needed. Sign in to post a deal or manage My deals. Use the email and password you registered with.</p>
+  <p class="sub">Browsing is open to everyone — no account needed. Sign in to save deals, post a deal, or manage My deals. Use the email and password you registered with.</p>
   {% if error %}<div class="msg err" role="alert">{{ error }}</div>{% endif %}
   <form class="card" method="post">
+    {% if request.args.get('next') %}
+      <input type="hidden" name="next" value="{{ request.args.get('next') }}"/>
+    {% endif %}
     <label>Email
       <input name="email" type="email" required autocomplete="email" />
     </label>
