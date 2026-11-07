@@ -24,11 +24,15 @@
 
   document.querySelectorAll("[data-cover-field]").forEach(function (root) {
     var input = root.querySelector("[data-cover-input]");
-    var clearBtn = root.querySelector("[data-cover-clear]");
     var picked = root.querySelector("[data-cover-picked]");
     var neu = root.querySelector("[data-cover-new]");
     var img = root.querySelector("[data-cover-preview]");
     var err = root.querySelector("[data-cover-error]");
+    var clearNew = root.querySelector("[data-clear-new]");
+    var clearCurrent = root.querySelector("[data-clear-current]");
+    var current = root.querySelector("[data-cover-current]");
+    var removedNote = root.querySelector("[data-cover-removed]");
+    var removeInput = root.querySelector("[data-remove-cover]");
     var maxBytes = parseInt(root.getAttribute("data-max-bytes") || "0", 10) || (8 * 1024 * 1024);
     var url = null;
 
@@ -53,16 +57,24 @@
       neu.hidden = true;
     }
 
-    function clearFile() {
+    function clearNewFile() {
       input.value = "";
       resetPreview();
       picked.hidden = true;
       picked.textContent = "";
-      clearBtn.hidden = true;
       setError("");
     }
 
-    clearBtn.addEventListener("click", clearFile);
+    if (clearNew) clearNew.addEventListener("click", clearNewFile);
+
+    if (clearCurrent) {
+      clearCurrent.addEventListener("click", function () {
+        if (removeInput) removeInput.value = "1";
+        var shot = current && current.querySelector(".cover-shot");
+        if (shot) shot.hidden = true;
+        if (removedNote) removedNote.hidden = false;
+      });
+    }
 
     input.addEventListener("change", function () {
       resetPreview();
@@ -71,10 +83,9 @@
       if (!file) {
         picked.hidden = true;
         picked.textContent = "";
-        clearBtn.hidden = true;
         return;
       }
-      clearBtn.hidden = false;
+      neu.hidden = false;
       picked.hidden = false;
       picked.textContent = "Selected: " + file.name;
       if (!file.size) {
@@ -100,7 +111,7 @@
         url = URL.createObjectURL(file);
         img.onload = function () { neu.hidden = false; };
         img.onerror = function () {
-          neu.hidden = true;
+          neu.hidden = false;
           err.hidden = false;
           err.textContent = "Preview isn't available for this file. You can still save it if it is a JPG or PNG under 8MB.";
           delete root.dataset.invalid;
@@ -119,7 +130,7 @@
         if (root.dataset.invalid === "1") {
           ev.preventDefault();
           err.hidden = false;
-          err.focus && err.setAttribute("tabindex", "-1");
+          err.setAttribute("tabindex", "-1");
           err.scrollIntoView({ block: "nearest" });
         }
       });

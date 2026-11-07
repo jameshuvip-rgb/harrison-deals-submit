@@ -695,6 +695,10 @@ def _classify_cover(blob: bytes) -> tuple[bytes, str]:
     )
 
 
+def cover_removal_requested() -> bool:
+    return (request.form.get("remove_cover") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def read_cover_upload():
     """Return (bytes, ext) for the cover file field, or None when no file was chosen.
 
@@ -1041,6 +1045,9 @@ def edit_deal(deal_id: int):
             if uploaded:
                 cover_path = uploaded
                 cover_url = public_cover_url(cover_path)
+            elif cover_removal_requested():
+                cover_path = None
+                cover_url = None
             else:
                 cover_path = deal["cover_path"]
                 cover_url = deal["cover_url"]
@@ -1151,7 +1158,12 @@ def edit_seed_deal(seed_id: str):
             except ValueError as exc:
                 error = str(exc)
             else:
-                image = uploaded_image or current.get("image")
+                if uploaded_image:
+                    image = uploaded_image
+                elif cover_removal_requested():
+                    image = ""
+                else:
+                    image = current.get("image") or ""
                 patch = {
                     "title": title[:200],
                     "line": (request.form.get("line") or "").strip(),
