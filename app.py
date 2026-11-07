@@ -429,6 +429,7 @@ def build_live_activity(merged: list[dict], limit: int = 16) -> list[dict]:
                 "stale": bool(deal.get("stale")),
                 "image": deal.get("image") or "",
                 "amazon_url": deal.get("amazon_url") or "#",
+                "promo": str(deal.get("promo") or "").strip(),
                 "promo_code": str(deal.get("promo_code") or "").strip(),
                 "code_note": str(deal.get("code_note") or "").strip(),
                 "rel_time": relative_time_label(deal),
@@ -866,19 +867,30 @@ def home():
             pool = attach_manage_flags(sort_feed(merged, "latest"))
         featured_list = pick_featured(pool, 3)
     nav = visible_nav_cats(counts)
-    live_activity = build_live_activity(merged, 16)
+    active_cat = cat or "all"
+    live_scoped = active_cat != "all"
+    # Homepage stays site-wide. A chosen department only shows that department,
+    # so an empty category does not keep listing every other post.
+    if live_scoped:
+        live_source = [d for d in merged if str(d.get("category") or "") == active_cat]
+    else:
+        live_source = merged
+    live_activity = build_live_activity(live_source, 16)
+    cat_label = next((c["label"] for c in NAV_CATS if c["id"] == active_cat), active_cat)
     return render_template(
         "browse.html",
         deals=feed,
         nav_cats=nav,
         all_nav_cats=NAV_CATS,
         counts=counts,
-        cat=cat or "all",
+        cat=active_cat,
+        cat_label=cat_label,
         q=q,
         sort=sort,
         featured=featured_list[0] if featured_list else None,
         featured_list=featured_list,
         live_activity=live_activity,
+        live_scoped=live_scoped,
     )
 
 

@@ -21,6 +21,7 @@
   <p class="msg err" data-cover-error hidden role="alert"></p>
   <label>Cover image{% if cover_required %} *{% endif %}
     <span class="hint">{{ cover_hint }}</span>
+    <span class="hint">Upload a clean product photo only — no seller-dashboard screenshots, no Chinese UI chrome in the image.</span>
     <input name="cover" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" data-cover-input {% if cover_required %}required{% endif %} />
   </label>
 </div>

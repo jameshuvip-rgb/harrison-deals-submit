@@ -89,13 +89,15 @@
   .modal-top strong { font-size:13px; }
   .modal-x { border:0; background:#f5f5f5; width:28px; height:28px; border-radius:999px; cursor:pointer; font-size:16px; }
   .modal-body { padding:14px 16px 18px; overflow:auto; }
-  .modal-thumb { width:100%; height:240px; background:#fafafa; border:1px solid #ececec; border-radius:10px; display:flex; align-items:center; justify-content:center; margin-bottom:12px; }
-  .modal-thumb img { max-width:100%; max-height:100%; object-fit:contain; padding:6px; }
+  .modal-thumb { width:100%; height:260px; background:#e7e7e7; border:1px solid #e0e0e0; border-radius:10px; display:flex; align-items:center; justify-content:center; margin-bottom:12px; overflow:hidden; }
+  /* Match the grid thumbs: a definite width and height. max-height:100% on a flex item can resolve to 0 and leave a blank white plate. */
+  .modal-thumb img { width:100%; height:100%; max-width:100%; max-height:100%; object-fit:contain; object-position:center; display:block; min-width:0; min-height:0; background:transparent; }
   .modal h3 { margin:0 0 6px; font-size:18px; line-height:1.3; }
   .modal .detail { font-size:13px; color:#404040; line-height:1.45; margin:10px 0 14px; }
   .modal-actions { display:flex; flex-wrap:wrap; gap:8px; }
   .promo-box { margin: 12px 0 4px; padding: 12px; border: 1px dashed #d4d4d4; border-radius: 10px; background: #fafafa; }
-  .promo-box[hidden], .promo-note[hidden] { display: none !important; }
+  .promo-box[hidden], .promo-note[hidden], .price-confirm[hidden] { display: none !important; }
+  .price-confirm { margin: 12px 0 0; font-size: 13px; line-height: 1.4; color: #525252; }
   .promo-kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; margin-bottom: 6px; }
   .promo-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .promo-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 18px; font-weight: 800; letter-spacing: 0.04em; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
@@ -129,7 +131,11 @@
   .live-row .bot { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-top:3px; }
   .live-row .pr { font-size:13px; font-weight:700; color:var(--price); }
   .live-row .tm { font-size:11px; color:var(--muted); flex:0 0 auto; }
-  .live-empty { padding:24px 14px; text-align:center; color:var(--muted); font-size:12px; }
+  .live-empty { padding:24px 14px; text-align:center; color:var(--muted); font-size:12px; line-height:1.45; }
+  .live-rail.is-quiet .live-dot { animation:none; background:#c7c7c7; box-shadow:none; }
+  .live-rail.is-quiet .live-card { background:#fafafa; box-shadow:none; }
+  .live-rail.is-quiet .live-head h2,
+  .live-rail.is-quiet .live-sub { color:#8a8a8a; }
   @media (max-width:1100px) {
     .live-rail { display:none; }
   }
@@ -162,6 +168,7 @@ data-off="{{ item.off or 0 }}"
 data-badge="{{ (item.badge or '')|e }}"
 data-asof="{{ (item.asOf or '')|e }}"
 data-stale="{{ '1' if item.stale else '0' }}"
+data-promo="{{ (item.promo or '')|e }}"
 data-image="{{ (item.image or '')|e }}"
 data-amazon="{{ item.amazon_url|e }}"
 data-promo-code="{{ (item.promo_code or '')|e }}"
@@ -327,11 +334,11 @@ data-id="{{ item.id|e }}"
       </footer>
     </main>
 
-    <aside class="live-rail" aria-label="Live updates">
+    <aside class="live-rail{% if live_scoped and not live_activity %} is-quiet{% endif %}" aria-label="Live updates">
       <div class="live-card">
         <div class="live-head">
           <h2><span class="live-dot" aria-hidden="true"></span>Live updates</h2>
-          <span class="live-sub">Latest</span>
+          <span class="live-sub">{% if live_scoped %}{{ cat_label }}{% else %}Latest{% endif %}</span>
         </div>
         {% if live_activity %}
         <div class="live-viewport" data-live-rail>
@@ -354,7 +361,7 @@ data-id="{{ item.id|e }}"
           </div>
         </div>
         {% else %}
-          <div class="live-empty">No new posts yet — check back soon.</div>
+          <div class="live-empty">{% if live_scoped %}No live updates in {{ cat_label }}.{% else %}No new posts yet — check back soon.{% endif %}</div>
         {% endif %}
       </div>
     </aside>
@@ -379,13 +386,11 @@ data-id="{{ item.id|e }}"
         <div class="asof" id="mAsof"></div>
         <div class="promo-box" id="mPromo" hidden>
           <div class="promo-kicker">Promo code</div>
-          <div class="promo-row">
-            <span class="promo-code" id="mPromoCode"></span>
-            <button type="button" class="btn sm" id="mCopyCode">Copy code</button>
-          </div>
+          <div class="promo-row" id="mPromoRow"></div>
           <div class="promo-note" id="mPromoNote" hidden></div>
         </div>
         <div class="detail" id="mDetail"></div>
+        <p class="price-confirm" id="mConfirm" hidden>Confirm price on Amazon.ca</p>
         <div class="modal-actions">
           <button type="button" class="btn ghost" id="mCopy">Copy share link</button>
           <a class="btn" id="mAmazon" href="#" target="_blank" rel="noopener noreferrer">Get on Amazon →</a>
@@ -432,11 +437,12 @@ data-id="{{ item.id|e }}"
   var mAmazon = document.getElementById('mAmazon');
   var mCopy = document.getElementById('mCopy');
   var mPromo = document.getElementById('mPromo');
-  var mPromoCode = document.getElementById('mPromoCode');
+  var mPromoRow = document.getElementById('mPromoRow');
   var mPromoNote = document.getElementById('mPromoNote');
-  var mCopyCode = document.getElementById('mCopyCode');
+  var mConfirm = document.getElementById('mConfirm');
   var currentId = '';
   var currentCode = '';
+  var REAL_CODE = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,31})$/;
 
   function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -478,25 +484,44 @@ data-id="{{ item.id|e }}"
     var asof = el.getAttribute('data-asof') || '';
     mAsof.textContent = stale ? 'Price may be outdated' : (asof ? ('Price as of ' + asof) : '');
     mAsof.className = 'asof' + (stale ? ' stale' : '');
-    var img = el.getAttribute('data-image') || '';
-    mThumb.innerHTML = img ? '<img src="' + img.replace(/"/g,'') + '" alt=""/>' : '';
-    mAmazon.href = el.getAttribute('data-amazon') || '#';
-    currentCode = (el.getAttribute('data-promo-code') || '').trim();
-    var note = (el.getAttribute('data-code-note') || '').trim();
-    mCopyCode.textContent = 'Copy code';
-    if (currentCode) {
-      mPromo.hidden = false;
-      mPromoCode.textContent = currentCode;
-      mPromoNote.hidden = !note;
-      mPromoNote.textContent = note;
-    } else {
-      mPromo.hidden = true;
-      mPromoCode.textContent = '';
-      mPromoNote.hidden = true;
-      mPromoNote.textContent = '';
+    var promoKind = (el.getAttribute('data-promo') || '').trim().toLowerCase();
+    mConfirm.hidden = !(stale || promoKind === 'bxgy');
+    var img = (el.getAttribute('data-image') || '').trim();
+    mThumb.replaceChildren();
+    if (img) {
+      var photo = document.createElement('img');
+      photo.alt = el.getAttribute('data-title') || '';
+      photo.src = img;
+      mThumb.appendChild(photo);
     }
+    mAmazon.href = el.getAttribute('data-amazon') || '#';
+    var note = (el.getAttribute('data-code-note') || '').trim();
+    setPromoCode((el.getAttribute('data-promo-code') || '').trim(), note);
     modal.classList.add('open');
     modal.setAttribute('aria-hidden', 'false');
+  }
+  function setPromoCode(code, note) {
+    currentCode = '';
+    mPromoRow.replaceChildren();
+    mPromo.hidden = true;
+    mPromoNote.hidden = true;
+    mPromoNote.textContent = '';
+    if (!code || !REAL_CODE.test(code)) return;
+    currentCode = code;
+    var span = document.createElement('span');
+    span.className = 'promo-code';
+    span.textContent = code;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn sm';
+    btn.textContent = 'Copy code';
+    mPromoRow.appendChild(span);
+    mPromoRow.appendChild(btn);
+    mPromo.hidden = false;
+    if (note) {
+      mPromoNote.hidden = false;
+      mPromoNote.textContent = note;
+    }
   }
   function closeDeal() {
     modal.classList.remove('open');
@@ -530,11 +555,12 @@ data-id="{{ item.id|e }}"
       window.prompt('Copy this link', url);
     });
   });
-  mCopyCode.addEventListener('click', function () {
-    if (!currentCode) return;
+  mPromoRow.addEventListener('click', function (e) {
+    var btn = e.target.closest('button');
+    if (!btn || !currentCode) return;
     copyText(currentCode).then(function () {
-      mCopyCode.textContent = 'Copied!';
-      setTimeout(function () { mCopyCode.textContent = 'Copy code'; }, 1200);
+      btn.textContent = 'Copied!';
+      setTimeout(function () { btn.textContent = 'Copy code'; }, 1200);
     }).catch(function () {
       window.prompt('Copy this code', currentCode);
     });
