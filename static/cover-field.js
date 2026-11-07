@@ -29,6 +29,7 @@
     var note = root.querySelector("[data-cover-note]");
     var err = root.querySelector("[data-cover-error]");
     var clearBtn = root.querySelector("[data-clear-cover]");
+    var fileName = root.querySelector("[data-file-name]");
     var removeInput = root.querySelector("[data-remove-cover]");
     var maxBytes = parseInt(root.getAttribute("data-max-bytes") || "0", 10) || (8 * 1024 * 1024);
     var savedSrc = root.getAttribute("data-saved-src") || "";
@@ -56,6 +57,11 @@
       else delete root.dataset.invalid;
     }
 
+    function setFileName(name) {
+      if (!fileName) return;
+      fileName.textContent = name || "No file chosen";
+    }
+
     function setNote(msg) {
       if (!note) return;
       if (!msg) {
@@ -80,6 +86,7 @@
 
     function showSaved() {
       revoke();
+      setFileName("");
       img.onload = null;
       img.onerror = null;
       if (savedSrc && !removalRequested()) {
@@ -127,6 +134,7 @@
         delete root.dataset.invalid;
       };
       img.src = url;
+      setFileName(file.name);
       var picked = "Selected: " + file.name;
       setNote(savedSrc ? picked + ". This replaces the current cover when you save." : picked);
     }
@@ -161,6 +169,14 @@
     }
 
     if (clearBtn) clearBtn.addEventListener("click", clearCover);
+
+    // The native file button is clipped so the OS-language label (for example
+    // 选择文件) never shows. Constraint validation still runs; surface it in English.
+    input.addEventListener("invalid", function (ev) {
+      ev.preventDefault();
+      setError("Choose a cover image (JPG, PNG, WEBP, or GIF, max 8MB).");
+      input.focus();
+    });
 
     input.addEventListener("change", function () {
       if (silent) return;
@@ -209,6 +225,12 @@
     if (form) {
       form.addEventListener("submit", function (ev) {
         if (input.files && input.files.length > 1) soleFile();
+        if (input.required && (!input.files || !input.files.length)) {
+          ev.preventDefault();
+          setError("Choose a cover image (JPG, PNG, WEBP, or GIF, max 8MB).");
+          input.focus();
+          return;
+        }
         if (root.dataset.invalid === "1") {
           ev.preventDefault();
           if (err) {

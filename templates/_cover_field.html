@@ -8,9 +8,16 @@
   </div>
   <p class="hint" data-cover-note hidden></p>
   <p class="msg err" data-cover-error hidden role="alert"></p>
-  <label>Cover image{% if cover_required %} *{% endif %}
+  <div class="cover-picker">
+    <span class="cover-label">Cover image{% if cover_required %} *{% endif %}</span>
     <span class="hint">{{ cover_hint }}</span>
     <span class="hint">Upload a clean product photo only — no seller-dashboard screenshots, no Chinese UI chrome in the image.</span>
-    <input name="cover" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" data-cover-input {% if cover_required %}required{% endif %} />
-  </label>
+    <div class="file-row">
+      <label class="file-choose">
+        Choose file
+        <input class="file-native" name="cover" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" data-cover-input {% if cover_required %}required{% endif %} />
+      </label>
+      <span class="file-chosen" data-file-name>No file chosen</span>
+    </div>
+  </div>
 </div>
