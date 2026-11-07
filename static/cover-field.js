@@ -36,6 +36,7 @@
     var url = null;
     var generation = 0;
     var silent = false;
+    var coverWasRequired = !!input.required;
 
     if (!input || !slot || !img) return;
     input.multiple = false;
@@ -118,7 +119,20 @@
       showSaved();
     }
 
+    function scrapedTokenInput() {
+      var form = root.closest("form");
+      return form ? form.querySelector("[data-scraped-cover]") : null;
+    }
+
+    function clearScrapedToken() {
+      var token = scrapedTokenInput();
+      if (token) token.value = "";
+      delete root.dataset.scraped;
+      if (coverWasRequired) input.required = true;
+    }
+
     function showReplacement(file) {
+      clearScrapedToken();
       revoke();
       if (removeInput) removeInput.value = "";
       url = URL.createObjectURL(file);
@@ -159,14 +173,48 @@
     }
 
     // One slot. Clear drops whatever is showing; a saved cover is removed on save.
+    // A scraped preview clears back to the saved cover (or empty) without deleting it.
     function clearCover() {
       generation += 1;
       clearInput();
       setBlocking(false);
       setError("");
-      if (removeInput && savedSrc) removeInput.value = "1";
+      var wasScraped = root.dataset.scraped === "1";
+      clearScrapedToken();
+      if (!wasScraped && removeInput && savedSrc) removeInput.value = "1";
       showSaved();
     }
+
+    root.addEventListener("hd-scraped-cover", function (ev) {
+      var detail = (ev && ev.detail) || {};
+      if (!detail.src) return;
+      if (input.files && input.files.length) return;
+      generation += 1;
+      revoke();
+      if (removeInput) removeInput.value = "";
+      setError("");
+      setBlocking(false);
+      img.onload = null;
+      img.onerror = null;
+      img.alt = "Cover preview";
+      img.src = detail.src;
+      slot.hidden = false;
+      setFileName("");
+      setNote("Filled from link. Upload a photo if you want a different cover.");
+      var token = scrapedTokenInput();
+      if (token) token.value = detail.token || "";
+      root.dataset.scraped = "1";
+      if (detail.token) input.required = false;
+    });
+
+    root.addEventListener("hd-scraped-cover-clear", function () {
+      if (root.dataset.scraped !== "1") return;
+      if (input.files && input.files.length) return;
+      generation += 1;
+      clearScrapedToken();
+      setError("");
+      showSaved();
+    });
 
     if (clearBtn) clearBtn.addEventListener("click", clearCover);
 

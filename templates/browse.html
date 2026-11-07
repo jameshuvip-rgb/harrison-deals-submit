@@ -174,6 +174,9 @@ data-amazon="{{ item.amazon_url|e }}"
 data-promo-code="{{ (item.promo_code or '')|e }}"
 data-code-note="{{ (item.code_note or '')|e }}"
 data-id="{{ item.id|e }}"
+data-track="{{ (item.track_key or '')|e }}"
+data-favorites="{{ item.favorites or 0 }}"
+data-favorited="{{ '1' if item.favorited else '0' }}"
 {%- endmacro %}
   <header class="site-header">
     <div class="top">
@@ -394,6 +397,7 @@ data-id="{{ item.id|e }}"
         <div class="detail" id="mDetail"></div>
         <p class="price-confirm" id="mConfirm" hidden>Confirm price on Amazon.ca</p>
         <div class="modal-actions">
+          <button type="button" class="btn ghost" id="mSave" data-save-deal data-track="" data-favorited="0" data-favorites="0" aria-pressed="false">Save</button>
           <button type="button" class="btn ghost" id="mCopy">Copy share link</button>
           <a class="btn" id="mAmazon" href="#" target="_blank" rel="noopener noreferrer">Get on Amazon →</a>
         </div>
@@ -403,6 +407,7 @@ data-id="{{ item.id|e }}"
 
 <script>
 (function () {
+  var LOGGED_IN = {{ 'true' if session.email else 'false' }};
   function closeMenus(except) {
     document.querySelectorAll('[data-menu].open').forEach(function (el) {
       if (el !== except) el.classList.remove('open');
@@ -438,11 +443,13 @@ data-id="{{ item.id|e }}"
   var mBadges = document.getElementById('mBadges');
   var mAmazon = document.getElementById('mAmazon');
   var mCopy = document.getElementById('mCopy');
+  var mSave = document.getElementById('mSave');
   var mPromo = document.getElementById('mPromo');
   var mPromoRow = document.getElementById('mPromoRow');
   var mPromoNote = document.getElementById('mPromoNote');
   var mConfirm = document.getElementById('mConfirm');
   var currentId = '';
+  var currentTrack = '';
   var currentCode = '';
   var REAL_CODE = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,31})$/;
 
@@ -470,8 +477,34 @@ data-id="{{ item.id|e }}"
     });
   }
 
+  function saveLabel(on, count) {
+    var n = parseInt(count || '0', 10) || 0;
+    var word = on ? 'Saved' : 'Save';
+    return n ? (word + ' · ' + n) : word;
+  }
+  function applySaveState(track, favorited, count) {
+    document.querySelectorAll('[data-track]').forEach(function (el) {
+      if ((el.getAttribute('data-track') || '') !== track) return;
+      el.setAttribute('data-favorited', favorited ? '1' : '0');
+      el.setAttribute('data-favorites', String(count));
+      if (el.hasAttribute('data-save-deal')) {
+        el.classList.toggle('on', !!favorited);
+        el.setAttribute('aria-pressed', favorited ? 'true' : 'false');
+        el.textContent = saveLabel(!!favorited, count);
+      }
+    });
+  }
+  function loginForSave() {
+    var next = location.pathname + location.search;
+    window.location = '/login?next=' + encodeURIComponent(next);
+  }
   function openDeal(el) {
     currentId = el.getAttribute('data-id') || '';
+    currentTrack = el.getAttribute('data-track') || '';
+    if (mSave) {
+      mSave.setAttribute('data-track', currentTrack);
+      applySaveState(currentTrack, el.getAttribute('data-favorited') === '1', el.getAttribute('data-favorites') || '0');
+    }
     mTitle.textContent = el.getAttribute('data-title') || '';
     mLine.textContent = el.getAttribute('data-line') || '';
     mDetail.textContent = el.getAttribute('data-detail') || el.getAttribute('data-fit') || '';
@@ -501,6 +534,14 @@ data-id="{{ item.id|e }}"
     setPromoCode((el.getAttribute('data-promo-code') || '').trim(), note);
     modal.classList.add('open');
     modal.setAttribute('aria-hidden', 'false');
+    if (currentTrack) {
+      fetch('/api/deals/view', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ track_key: currentTrack }),
+        keepalive: true
+      }).catch(function () {});
+    }
   }
   function setPromoCode(code, note) {
     currentCode = '';
@@ -531,7 +572,7 @@ data-id="{{ item.id|e }}"
   }
   document.querySelectorAll('[data-open-deal]').forEach(function (el) {
     el.addEventListener('click', function (e) {
-      if (e.target.closest('[data-menu]')) return;
+      if (e.target.closest('[data-menu]') || e.target.closest('[data-save-deal]')) return;
       openDeal(el);
     });
     el.addEventListener('keydown', function (e) {
@@ -540,6 +581,32 @@ data-id="{{ item.id|e }}"
         openDeal(el);
       }
     });
+  });
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-save-deal]');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var track = btn.getAttribute('data-track') || '';
+    if (!track) return;
+    if (!LOGGED_IN) {
+      loginForSave();
+      return;
+    }
+    fetch('/api/deals/favorite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ track_key: track })
+    }).then(function (response) {
+      if (response.status === 401) {
+        loginForSave();
+        return null;
+      }
+      return response.json();
+    }).then(function (body) {
+      if (!body || !body.ok) return;
+      applySaveState(track, !!body.favorited, body.favorites || 0);
+    }).catch(function () {});
   });
   document.getElementById('dealModalClose').addEventListener('click', closeDeal);
   modal.addEventListener('click', function (e) {

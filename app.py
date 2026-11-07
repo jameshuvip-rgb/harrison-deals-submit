@@ -2,6 +2,8 @@
 """Harrison Deals submit app with email/password auth and owner-only edit."""
 from __future__ import annotations
 
+import gzip
+import hashlib
 import json
 import os
 import re
@@ -13,6 +15,8 @@ from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+import urllib.error
+import urllib.request
 
 from flask import (
     Flask,
@@ -65,6 +69,29 @@ COVER_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 # an on-page error.
 COVER_MAX_BYTES = 8 * 1024 * 1024
 REQUEST_MAX_BYTES = COVER_MAX_BYTES + 512 * 1024
+# Hot Deals: slot 1 is views in this window, slot 2 is biggest % off.
+HOT_LIMIT = 3
+VIEW_WINDOW_SEC = 30 * 60
+VIEW_DEBOUNCE_SEC = 5 * 60
+VIEW_KEEP_SEC = 24 * 60 * 60
+LOOKUP_COVER_TTL = 30 * 60
+AMAZON_HTML_TIMEOUT = 6
+AMAZON_IMAGE_TIMEOUT = 5
+AMAZON_HTML_MAX = 1_500_000
+# One browser-like User-Agent, one attempt. A custom bot UA is blocked immediately.
+AMAZON_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/122.0.0.0 Safari/537.36"
+)
+MSG_FILLED = "Filled from link"
+MSG_NO_PRICE = "Couldn't fetch price — enter manually"
+MSG_NO_COVER = "Cover unavailable — upload your own"
+DEAL_KEY_RE = re.compile(r"^(?:user:[1-9]\d*|seed:[A-Za-z0-9_-]{1,64})$")
+AMAZON_ASIN_RE = re.compile(
+    r"(?:/dp/|/gp/product/|/gp/aw/d/|/product/)([A-Za-z0-9]{10})(?:[/?#]|$)",
+    re.I,
+)
 
 for d in (DATA, INBOX, UPLOADS):
     d.mkdir(parents=True, exist_ok=True)
@@ -217,7 +244,20 @@ def enrich_deal(deal: dict) -> dict:
     out.setdefault("can_manage", False)
     out.setdefault("manage_url", None)
     out.setdefault("delete_url", None)
+    out["track_key"] = deal_track_key(out)
+    out.setdefault("views_30m", 0)
+    out.setdefault("favorites", 0)
+    out.setdefault("favorited", False)
     return out
+
+
+def deal_track_key(deal: dict) -> str:
+    """Stable engagement key. User rows use the SQLite id; seeds use the catalog id."""
+    source = str(deal.get("source") or "seed")
+    if source == "user" and deal.get("db_id"):
+        return f"user:{int(deal['db_id'])}"
+    safe = re.sub(r"[^A-Za-z0-9_-]", "", str(deal.get("id") or ""))[:64]
+    return f"seed:{safe}" if safe else ""
 
 
 def admin_emails() -> set[str]:
@@ -354,20 +394,108 @@ def has_real_image(deal: dict) -> bool:
     return bool(img) and not img.startswith("data:")
 
 
-def pick_featured(feed: list[dict], limit: int = 3) -> list[dict]:
-    with_img = [d for d in feed if has_real_image(d)]
-    featured = [d for d in with_img if d.get("featured")]
-    if len(featured) >= limit:
-        return featured[:limit]
-    seen = {str(d.get("id")) for d in featured}
-    for d in with_img:
-        if str(d.get("id")) in seen:
-            continue
-        featured.append(d)
-        seen.add(str(d.get("id")))
-        if len(featured) >= limit:
+def _hot_tie_key(deal: dict) -> tuple:
+    """favorites desc, then updated/posted desc, then a real cover, then id."""
+    favorites = int(deal.get("favorites") or 0)
+    updated = int(deal.get("posted") or 0)
+    image = 1 if has_real_image(deal) else 0
+    return (favorites, updated, image, str(deal.get("id") or ""))
+
+
+def _hot_winner(cands: list[dict]) -> dict:
+    best = cands[0]
+    best_key = _hot_tie_key(best)
+    for deal in cands[1:]:
+        key = _hot_tie_key(deal)
+        if key > best_key:
+            best = deal
+            best_key = key
+    return best
+
+
+def _tag_hot(deal: dict, label: str) -> dict:
+    item = dict(deal)
+    item["hot_label"] = label
+    return item
+
+
+def pick_hot_deals(feed: list[dict], limit: int = HOT_LIMIT) -> list[dict]:
+    """Up to three Hot Deals cards, each with a real cover image.
+
+    Slot 1 is the most-viewed deal in the last 30 minutes.
+    Slot 2 is the biggest % off.
+    Slot 3 is the most saved.
+    If a slot's leader was already used, that slot takes the next-best on the same axis.
+    Ties break on favorites, then updated/posted, then a real cover.
+    With no views and no saves, fill by biggest % off then latest, still at most three.
+    """
+    pool = [d for d in feed if has_real_image(d)]
+    if not pool:
+        return []
+    limit = max(0, min(int(limit or HOT_LIMIT), HOT_LIMIT))
+    if limit == 0:
+        return []
+
+    def views(deal: dict) -> int:
+        return int(deal.get("views_30m") or 0)
+
+    def off(deal: dict) -> int:
+        return int(deal.get("off") or 0)
+
+    def fav(deal: dict) -> int:
+        return int(deal.get("favorites") or 0)
+
+    def identity(deal: dict) -> str:
+        return str(deal.get("track_key") or deal.get("id") or "")
+
+    def ranked_fallback(taken: set[str]) -> list[dict]:
+        rest = [d for d in pool if identity(d) not in taken]
+        return sorted(rest, key=lambda d: (off(d),) + _hot_tie_key(d), reverse=True)
+
+    def best_on(score, taken: set[str]):
+        cands = [d for d in pool if identity(d) not in taken and score(d) > 0]
+        if not cands:
+            return None
+        best = max(score(d) for d in cands)
+        return _hot_winner([d for d in cands if score(d) == best])
+
+    if not any(views(d) > 0 for d in pool) and not any(fav(d) > 0 for d in pool):
+        chosen = ranked_fallback(set())[:limit]
+        top_off = off(chosen[0]) if chosen else 0
+        out = []
+        for deal in chosen:
+            label = "Biggest % off" if off(deal) > 0 and off(deal) == top_off else "Latest"
+            out.append(_tag_hot(deal, label))
+        return out
+
+    taken: set[str] = set()
+    result: list[dict] = []
+    for score, label in (
+        (views, "Most viewed"),
+        (off, "Biggest % off"),
+        (fav, "Most saved"),
+    ):
+        if len(result) >= limit:
             break
-    return featured[:limit]
+        winner = best_on(score, taken)
+        if winner is None:
+            continue
+        taken.add(identity(winner))
+        result.append(_tag_hot(winner, label))
+
+    if len(result) < limit:
+        extras = ranked_fallback(taken)
+        top_off = off(extras[0]) if extras else 0
+        discount_taken = any(item.get("hot_label") == "Biggest % off" for item in result)
+        for deal in extras:
+            if len(result) >= limit:
+                break
+            if not discount_taken and off(deal) > 0 and off(deal) == top_off:
+                label = "Biggest % off"
+            else:
+                label = "Latest"
+            result.append(_tag_hot(deal, label))
+    return result
 
 
 def sort_feed(feed: list[dict], sort: str) -> list[dict]:
@@ -444,6 +572,9 @@ def build_live_activity(merged: list[dict], limit: int = 16) -> list[dict]:
                 "rel_time": relative_time_label(deal),
                 "event": event,
                 "is_new": is_new,
+                "track_key": deal.get("track_key") or "",
+                "favorites": int(deal.get("favorites") or 0),
+                "favorited": bool(deal.get("favorited")),
             }
         )
     return out
@@ -489,13 +620,21 @@ def inject_globals():
     }
 
 
+@app.before_request
+def ensure_visitor():
+    if request.path.startswith("/static") or request.path.startswith("/uploads") or request.path == "/health":
+        return
+    if not session.get("vid"):
+        session["vid"] = secrets.token_hex(16)
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=5)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         g.db = conn
@@ -510,7 +649,7 @@ def close_db(_exc=None):
 
 
 def init_db() -> None:
-    db = sqlite3.connect(DB_PATH)
+    db = sqlite3.connect(DB_PATH, timeout=5)
     db.executescript(
         """
         CREATE TABLE IF NOT EXISTS users (
@@ -548,6 +687,23 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_contact_messages_created
             ON contact_messages(created_at);
+        CREATE TABLE IF NOT EXISTS deal_views (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            deal_key TEXT NOT NULL,
+            session_key TEXT NOT NULL,
+            ip_key TEXT NOT NULL,
+            viewed_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_deal_views_deal_time
+            ON deal_views(deal_key, viewed_at);
+        CREATE TABLE IF NOT EXISTS deal_favorites (
+            deal_key TEXT NOT NULL,
+            user_email TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (deal_key, user_email)
+        );
+        CREATE INDEX IF NOT EXISTS idx_deal_favorites_user
+            ON deal_favorites(user_email);
         """
     )
     ensure_deal_columns(db)
@@ -735,16 +891,29 @@ def read_cover_upload():
     return _classify_cover(blob)
 
 
-def save_cover(user_id: int):
-    parsed = read_cover_upload()
-    if parsed is None:
-        return None
-    blob, ext = parsed
+def store_user_cover_bytes(user_id: int, blob: bytes, ext: str) -> str:
     folder = UPLOADS / str(user_id)
     folder.mkdir(parents=True, exist_ok=True)
     name = f"{int(time.time())}_{secrets.token_hex(4)}{ext}"
     (folder / name).write_bytes(blob)
     return f"{user_id}/{name}"
+
+
+def store_seed_cover_bytes(seed_id: str, blob: bytes, ext: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_-]", "", seed_id)[:40] or "seed"
+    folder = UPLOADS / "seed" / safe
+    folder.mkdir(parents=True, exist_ok=True)
+    name = f"{int(time.time())}_{secrets.token_hex(4)}{ext}"
+    (folder / name).write_bytes(blob)
+    return f"/uploads/seed/{safe}/{name}"
+
+
+def save_cover(user_id: int):
+    parsed = read_cover_upload()
+    if parsed is None:
+        return None
+    blob, ext = parsed
+    return store_user_cover_bytes(user_id, blob, ext)
 
 
 def save_seed_cover(seed_id: str) -> str | None:
@@ -753,12 +922,564 @@ def save_seed_cover(seed_id: str) -> str | None:
     if parsed is None:
         return None
     blob, ext = parsed
-    safe = re.sub(r"[^A-Za-z0-9_-]", "", seed_id)[:40] or "seed"
-    folder = UPLOADS / "seed" / safe
+    return store_seed_cover_bytes(seed_id, blob, ext)
+
+
+def _purge_old_lookup_files(folder: Path) -> None:
+    if not folder.is_dir():
+        return
+    cutoff = time.time() - LOOKUP_COVER_TTL
+    for path in folder.glob("*"):
+        try:
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            continue
+
+
+def save_lookup_cover(user_id: int, blob: bytes) -> tuple[str, str] | None:
+    """Best-effort cover for the current form only. Not shared across users."""
+    try:
+        data, ext = _classify_cover(blob)
+    except ValueError:
+        return None
+    if len(data) > COVER_MAX_BYTES:
+        return None
+    folder = UPLOADS / "_lookup" / str(int(user_id))
     folder.mkdir(parents=True, exist_ok=True)
-    name = f"{int(time.time())}_{secrets.token_hex(4)}{ext}"
-    (folder / name).write_bytes(blob)
-    return f"/uploads/seed/{safe}/{name}"
+    _purge_old_lookup_files(folder)
+    token = secrets.token_hex(16)
+    (folder / f"{token}{ext}").write_bytes(data)
+    return token, f"/uploads/_lookup/{int(user_id)}/{token}{ext}"
+
+
+def consume_lookup_cover(user_id: int | None) -> tuple[bytes, str] | None:
+    """Take a scraped cover token posted with this form. A seller file upload wins instead."""
+    if user_id is None:
+        return None
+    token = (request.form.get("scraped_cover") or "").strip().lower()
+    if not re.fullmatch(r"[a-f0-9]{32}", token):
+        return None
+    folder = UPLOADS / "_lookup" / str(int(user_id))
+    if not folder.is_dir():
+        return None
+    matches = [
+        path
+        for path in folder.glob(token + ".*")
+        if path.is_file() and path.suffix.lower() in COVER_EXTS
+    ]
+    if len(matches) != 1:
+        return None
+    src = matches[0]
+    try:
+        if time.time() - src.stat().st_mtime > LOOKUP_COVER_TTL:
+            src.unlink(missing_ok=True)
+            return None
+        blob = src.read_bytes()
+    except OSError:
+        return None
+    try:
+        data, ext = _classify_cover(blob)
+    except ValueError:
+        try:
+            src.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return None
+    try:
+        src.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return data, ext
+
+
+def resolve_user_cover(user_id: int) -> str | None:
+    uploaded = save_cover(user_id)
+    if uploaded:
+        return uploaded
+    scraped = consume_lookup_cover(user_id)
+    if not scraped:
+        return None
+    blob, ext = scraped
+    return store_user_cover_bytes(user_id, blob, ext)
+
+
+def _viewer_fingerprints() -> tuple[str, str]:
+    vid = (session.get("vid") or "").strip()
+    if not vid:
+        vid = secrets.token_hex(16)
+        session["vid"] = vid
+    ip = (request.headers.get("X-Forwarded-For") or request.remote_addr or "").split(",")[0].strip()
+    ip_key = "i:"
+    if ip:
+        digest = hashlib.sha256(f"{app.secret_key}|{ip}".encode()).hexdigest()[:32]
+        ip_key = f"i:{digest}"
+    return f"s:{vid}", ip_key
+
+
+def same_origin_request() -> bool:
+    fetch_site = (request.headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if fetch_site in {"cross-site", "same-site"}:
+        return False
+    origin = (request.headers.get("Origin") or "").strip()
+    if not origin:
+        return True
+    try:
+        parsed = urlparse(origin)
+    except ValueError:
+        return False
+    return (parsed.hostname or "").lower() == request.host.split(":")[0].lower()
+
+
+def live_deal_for_key(deal_key: str) -> bool:
+    if not DEAL_KEY_RE.match(deal_key or ""):
+        return False
+    kind, ident = deal_key.split(":", 1)
+    db = get_db()
+    if kind == "user":
+        row = db.execute(
+            "SELECT 1 FROM deals WHERE id = ? AND deleted_at IS NULL",
+            (int(ident),),
+        ).fetchone()
+        return row is not None
+    if ident in load_deleted_seed_ids():
+        return False
+    return _find_seed_raw(ident) is not None
+
+
+def attach_engagement(deals: list[dict]) -> None:
+    keys = [str(d.get("track_key") or "") for d in deals if d.get("track_key")]
+    if not keys:
+        return
+    db = get_db()
+    now = int(time.time())
+    marks = ",".join("?" * len(keys))
+    view_rows = db.execute(
+        f"""
+        SELECT deal_key, COUNT(*) AS n
+        FROM deal_views
+        WHERE viewed_at >= ? AND deal_key IN ({marks})
+        GROUP BY deal_key
+        """,
+        (now - VIEW_WINDOW_SEC, *keys),
+    ).fetchall()
+    fav_rows = db.execute(
+        f"""
+        SELECT deal_key, COUNT(*) AS n
+        FROM deal_favorites
+        WHERE deal_key IN ({marks})
+        GROUP BY deal_key
+        """,
+        tuple(keys),
+    ).fetchall()
+    mine: set[str] = set()
+    email = current_email()
+    if email:
+        mine_rows = db.execute(
+            f"""
+            SELECT deal_key FROM deal_favorites
+            WHERE user_email = ? AND deal_key IN ({marks})
+            """,
+            (email, *keys),
+        ).fetchall()
+        mine = {str(row["deal_key"]) for row in mine_rows}
+    views = {str(row["deal_key"]): int(row["n"]) for row in view_rows}
+    favs = {str(row["deal_key"]): int(row["n"]) for row in fav_rows}
+    for deal in deals:
+        key = str(deal.get("track_key") or "")
+        deal["views_30m"] = views.get(key, 0)
+        deal["favorites"] = favs.get(key, 0)
+        deal["favorited"] = key in mine
+
+
+def record_deal_view(deal_key: str) -> bool:
+    """Count one detail open. Same session or same IP inside a few minutes counts once."""
+    now = int(time.time())
+    session_key, ip_key = _viewer_fingerprints()
+    db = get_db()
+    db.execute("DELETE FROM deal_views WHERE viewed_at < ?", (now - VIEW_KEEP_SEC,))
+    row = db.execute(
+        """
+        SELECT 1 FROM deal_views
+        WHERE deal_key = ?
+          AND viewed_at >= ?
+          AND (session_key = ? OR (? != 'i:' AND ip_key = ?))
+        LIMIT 1
+        """,
+        (deal_key, now - VIEW_DEBOUNCE_SEC, session_key, ip_key, ip_key),
+    ).fetchone()
+    if row:
+        db.commit()
+        return False
+    db.execute(
+        """
+        INSERT INTO deal_views (deal_key, session_key, ip_key, viewed_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (deal_key, session_key, ip_key, now),
+    )
+    db.commit()
+    return True
+
+
+def favorite_count(deal_key: str) -> int:
+    row = get_db().execute(
+        "SELECT COUNT(*) AS n FROM deal_favorites WHERE deal_key = ?",
+        (deal_key,),
+    ).fetchone()
+    return int(row["n"] if row else 0)
+
+
+def toggle_favorite(deal_key: str, email: str) -> bool:
+    db = get_db()
+    existing = db.execute(
+        "SELECT 1 FROM deal_favorites WHERE deal_key = ? AND user_email = ?",
+        (deal_key, email),
+    ).fetchone()
+    if existing:
+        db.execute(
+            "DELETE FROM deal_favorites WHERE deal_key = ? AND user_email = ?",
+            (deal_key, email),
+        )
+        favorited = False
+    else:
+        db.execute(
+            """
+            INSERT INTO deal_favorites (deal_key, user_email, created_at)
+            VALUES (?, ?, ?)
+            """,
+            (deal_key, email, utc_now()),
+        )
+        favorited = True
+    db.commit()
+    return favorited
+
+
+def amazon_marketplace(url: str) -> tuple[str, str] | None:
+    """Return (ASIN, 'ca'|'com') from an amazon.ca or amazon.com product URL."""
+    raw = (url or "").strip()
+    if not raw:
+        return None
+    if "://" not in raw:
+        raw = "https://" + raw
+    try:
+        parsed = urlparse(raw)
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    host = (parsed.hostname or "").lower().strip(".")
+    if host == "amazon.ca" or host.endswith(".amazon.ca"):
+        market = "ca"
+    elif host == "amazon.com" or host.endswith(".amazon.com"):
+        market = "com"
+    else:
+        return None
+    match = AMAZON_ASIN_RE.search(parsed.path or "")
+    asin = match.group(1).upper() if match else ""
+    if not asin:
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        asin = (query.get("asin") or query.get("ASIN") or "").strip().upper()
+    if not ASIN_RE.match(asin):
+        return None
+    return asin, market
+
+
+def _html_text(fragment: str) -> str:
+    text = re.sub(r"<[^>]+>", " ", fragment or "")
+    text = (
+        text.replace("&amp;", "&")
+        .replace("&#39;", "'")
+        .replace("&quot;", '"')
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _money(raw: str) -> float | None:
+    try:
+        value = float((raw or "").replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    return round(value, 2)
+
+
+def _first_money(patterns: list[str], html: str) -> float | None:
+    for pattern in patterns:
+        match = re.search(pattern, html, re.I | re.S)
+        if not match:
+            continue
+        value = _money(match.group(1))
+        if value is not None:
+            return value
+    return None
+
+
+def _price_in_chunk(chunk: str) -> float | None:
+    """First visible price inside a bounded slice. Ignores blank a-offscreen nodes."""
+    if not chunk:
+        return None
+    match = re.search(
+        r'class="a-offscreen">\s*(?:CDN\s*)?\$?\s*([0-9][0-9,]*(?:\.[0-9]{2})?)',
+        chunk,
+        re.I,
+    )
+    if match:
+        value = _money(match.group(1))
+        if value is not None:
+            return value
+    whole = re.search(
+        r'class="a-price-whole">\s*([0-9][0-9,]*)\s*<.*?class="a-price-fraction">\s*([0-9]{2})',
+        chunk,
+        re.I | re.S,
+    )
+    if not whole:
+        return None
+    return _money(f"{whole.group(1)}.{whole.group(2)}")
+
+
+def _price_after_anchor(html: str, anchor: str, window: int = 700) -> float | None:
+    start = 0
+    while True:
+        idx = html.find(anchor, start)
+        if idx < 0:
+            return None
+        value = _price_in_chunk(html[idx : idx + window])
+        if value is not None:
+            return value
+        start = idx + len(anchor)
+
+
+def _widget_chunk(html: str, widget_id: str, window: int = 8000) -> str:
+    marker = f'id="{widget_id}"'
+    idx = html.find(marker)
+    if idx < 0:
+        return ""
+    return html[idx : idx + window]
+
+
+def _amazon_image_host_ok(host: str) -> bool:
+    host = (host or "").lower().strip(".")
+    suffixes = (
+        "media-amazon.com",
+        "ssl-images-amazon.com",
+        "images-amazon.com",
+        "amazon.com",
+        "amazon.ca",
+    )
+    return any(host == suffix or host.endswith("." + suffix) for suffix in suffixes)
+
+
+def parse_amazon_html(html: str) -> dict:
+    """Pull title, current price, list price, and a main image URL. Empty on a block page."""
+    result = {
+        "blocked": False,
+        "title": None,
+        "deal_price": None,
+        "list_price": None,
+        "image_url": None,
+    }
+    if not html:
+        return result
+    lowered = html.lower()
+    blocked_markers = (
+        "opfcaptcha",
+        "validatecaptcha",
+        "enter the characters you see below",
+        "sorry, we just need to make sure you're not a robot",
+        "robot check",
+        "api-services-support@amazon.com",
+    )
+    if any(marker in lowered for marker in blocked_markers) and 'id="producttitle"' not in lowered:
+        result["blocked"] = True
+        return result
+
+    title = None
+    match = re.search(r'id="productTitle"[^>]*>(.*?)</span>', html, re.I | re.S)
+    if match:
+        title = _html_text(match.group(1))
+    if not title:
+        match = re.search(r'property="og:title"[^>]*content="([^"]+)"', html, re.I)
+        if not match:
+            match = re.search(r'content="([^"]+)"[^>]*property="og:title"', html, re.I)
+        if match:
+            title = _html_text(match.group(1))
+    if title:
+        title = re.sub(r"\s*[:|–-]\s*Amazon\.(ca|com)\s*$", "", title, flags=re.I).strip()
+        title = re.sub(r"^Amazon\.(ca|com)\s*[:|–-]\s*", "", title, flags=re.I).strip()
+        if len(title) > 200:
+            title = title[:200].rstrip()
+        result["title"] = title or None
+
+    # Prefer the buy-box "price to pay". A page-wide search also hits recommendation carousels.
+    deal = _price_after_anchor(html, "apex-pricetopay-value")
+    if deal is None:
+        deal = _first_money(
+            [
+                r'"priceToPay"\s*:\s*\{[^{}]*?"priceAmount"\s*:\s*([0-9]+(?:\.[0-9]+)?)',
+                r'id="priceblock_dealprice"[^>]*>\s*(?:CDN\s*)?\$?\s*([0-9][0-9,]*(?:\.[0-9]{2})?)',
+                r'id="priceblock_ourprice"[^>]*>\s*(?:CDN\s*)?\$?\s*([0-9][0-9,]*(?:\.[0-9]{2})?)',
+            ],
+            html,
+        )
+    price_chunks = [
+        _widget_chunk(html, "corePrice_feature_div"),
+        _widget_chunk(html, "corePriceDisplay_desktop_feature_div"),
+    ]
+    if deal is None:
+        for chunk in price_chunks:
+            deal = _price_in_chunk(chunk)
+            if deal is not None:
+                break
+    result["deal_price"] = deal
+    list_price = _first_money(
+        [
+            r'"basisPrice"\s*:\s*\{[^{}]*?"priceAmount"\s*:\s*([0-9]+(?:\.[0-9]+)?)',
+            r'id="priceblock_listprice"[^>]*>\s*(?:CDN\s*)?\$?\s*([0-9][0-9,]*(?:\.[0-9]{2})?)',
+        ],
+        html,
+    )
+    if list_price is None:
+        for chunk in price_chunks:
+            strike = re.search(
+                r'(?:a-text-price|data-a-strike="true")[^>]*>.*?class="a-offscreen">\s*(?:CDN\s*)?\$?\s*([0-9][0-9,]*(?:\.[0-9]{2})?)',
+                chunk,
+                re.I | re.S,
+            )
+            if strike:
+                list_price = _money(strike.group(1))
+                if list_price is not None:
+                    break
+    if list_price is not None and deal is not None and list_price <= deal:
+        list_price = None
+    result["list_price"] = list_price
+
+    image = None
+    for pattern in (
+        r'"hiRes"\s*:\s*"(https:[^"]+)"',
+        r'"large"\s*:\s*"(https:[^"]+)"',
+        r'property="og:image"[^>]*content="(https:[^"]+)"',
+        r'content="(https:[^"]+)"[^>]*property="og:image"',
+    ):
+        found = re.search(pattern, html, re.I)
+        if not found:
+            continue
+        candidate = found.group(1).replace("\\/", "/")
+        parsed = urlparse(candidate)
+        if parsed.scheme == "https" and _amazon_image_host_ok(parsed.hostname or ""):
+            image = candidate
+            break
+    result["image_url"] = image
+    return result
+
+
+class _AmazonRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        parsed = urlparse(newurl)
+        host = (parsed.hostname or "").lower()
+        allowed = parsed.scheme in {"http", "https"} and (
+            host == "amazon.ca"
+            or host.endswith(".amazon.ca")
+            or host == "amazon.com"
+            or host.endswith(".amazon.com")
+            or host.endswith(".media-amazon.com")
+            or host.endswith(".ssl-images-amazon.com")
+            or host.endswith(".images-amazon.com")
+        )
+        if not allowed:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _amazon_opener() -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(_AmazonRedirectHandler)
+
+
+def fetch_amazon_html(url: str, accept_language: str) -> str | None:
+    """One polite GET. Any timeout, block, or network error returns None. No retries."""
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": AMAZON_UA,
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": accept_language,
+            "Accept-Encoding": "identity",
+        },
+        method="GET",
+    )
+    try:
+        with _amazon_opener().open(req, timeout=AMAZON_HTML_TIMEOUT) as resp:
+            raw = resp.read(AMAZON_HTML_MAX + 1)
+            if len(raw) > AMAZON_HTML_MAX:
+                raw = raw[:AMAZON_HTML_MAX]
+            if "gzip" in (resp.headers.get("Content-Encoding") or "").lower():
+                raw = gzip.decompress(raw)
+            charset = resp.headers.get_content_charset() or "utf-8"
+            return raw.decode(charset, "replace")
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, gzip.BadGzipFile):
+        return None
+
+
+def fetch_amazon_image(url: str) -> bytes | None:
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not _amazon_image_host_ok(parsed.hostname or ""):
+        return None
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": AMAZON_UA,
+            "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+            "Accept-Encoding": "identity",
+        },
+        method="GET",
+    )
+    try:
+        with _amazon_opener().open(req, timeout=AMAZON_IMAGE_TIMEOUT) as resp:
+            blob = resp.read(COVER_MAX_BYTES + 1)
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return None
+    if not blob or len(blob) > COVER_MAX_BYTES:
+        return None
+    return blob
+
+
+def lookup_amazon_product(url: str, user_id: int | None) -> dict:
+    parsed = amazon_marketplace(url)
+    if not parsed:
+        return {
+            "ok": False,
+            "error": "Paste an amazon.ca or amazon.com product link.",
+        }
+    asin, market = parsed
+    host = "www.amazon.ca" if market == "ca" else "www.amazon.com"
+    language = "en-CA,en;q=0.9" if market == "ca" else "en-US,en;q=0.9"
+    html = fetch_amazon_html(f"https://{host}/dp/{asin}", language)
+    info = parse_amazon_html(html or "")
+    cover_token = None
+    cover_preview = None
+    if user_id is not None and info.get("image_url") and not info.get("blocked"):
+        blob = fetch_amazon_image(info["image_url"])
+        if blob:
+            saved = save_lookup_cover(user_id, blob)
+            if saved:
+                cover_token, cover_preview = saved
+    messages = [MSG_FILLED if info.get("deal_price") is not None else MSG_NO_PRICE]
+    if not cover_token:
+        messages.append(MSG_NO_COVER)
+    return {
+        "ok": True,
+        "asin": asin,
+        "title": info.get("title"),
+        "deal_price": info.get("deal_price"),
+        "list_price": info.get("list_price"),
+        "cover_token": cover_token,
+        "cover_preview": cover_preview,
+        "messages": messages,
+    }
 
 
 def _deal_value(deal: sqlite3.Row | dict, key: str, default=None):
@@ -917,6 +1638,7 @@ def home():
             continue
         seen.add(key)
         merged.append(item)
+    attach_engagement(merged)
     counts = {"all": len(merged)}
     for item in merged:
         key = str(item.get("category") or "")
@@ -944,7 +1666,7 @@ def home():
             pool = feed
         else:
             pool = attach_manage_flags(sort_feed(merged, "latest"))
-        featured_list = pick_featured(pool, 3)
+        featured_list = pick_hot_deals(pool, HOT_LIMIT)
     nav = visible_nav_cats(counts)
     active_cat = cat or "all"
     live_scoped = active_cat != "all"
@@ -1006,6 +1728,57 @@ def contact():
 @app.get("/health")
 def health():
     return jsonify(ok=True)
+
+
+def _request_track_key() -> str:
+    body = request.get_json(silent=True) if request.is_json else None
+    raw = ""
+    if isinstance(body, dict):
+        raw = body.get("track_key") or ""
+    if not raw:
+        raw = request.form.get("track_key") or ""
+    return str(raw or "").strip()
+
+
+@app.post("/api/deals/view")
+def api_record_view():
+    """Count a deal-detail open. Guests included. Debounced per session and IP."""
+    if not same_origin_request():
+        return jsonify(ok=False), 400
+    deal_key = _request_track_key()
+    if not live_deal_for_key(deal_key):
+        return jsonify(ok=False), 404
+    counted = record_deal_view(deal_key)
+    return jsonify(ok=True, counted=counted)
+
+
+@app.post("/api/deals/favorite")
+@login_required
+def api_toggle_favorite():
+    if not same_origin_request():
+        return jsonify(ok=False, error="Could not save that deal."), 400
+    deal_key = _request_track_key()
+    if not live_deal_for_key(deal_key):
+        return jsonify(ok=False, error="That deal was not found."), 404
+    favorited = toggle_favorite(deal_key, current_email())
+    return jsonify(ok=True, favorited=favorited, favorites=favorite_count(deal_key))
+
+
+@app.post("/api/amazon-lookup")
+@login_required
+def api_amazon_lookup():
+    """Fill a seller form from one Amazon product URL. Fail soft. No shared cache."""
+    if not same_origin_request():
+        return jsonify(ok=False, error="Paste an amazon.ca or amazon.com product link."), 400
+    body = request.get_json(silent=True) if request.is_json else None
+    raw_url = ""
+    if isinstance(body, dict):
+        raw_url = body.get("url") or ""
+    if not raw_url:
+        raw_url = request.form.get("url") or ""
+    result = lookup_amazon_product(str(raw_url), current_user_id())
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -1078,7 +1851,7 @@ def post_deal():
     if request.method == "POST":
         try:
             fields = parse_deal_fields(request.form)
-            cover_path = save_cover(current_user_id())
+            cover_path = resolve_user_cover(current_user_id())
             if not cover_path:
                 raise ValueError("Cover image is required")
         except ValueError as exc:
@@ -1166,12 +1939,18 @@ def edit_deal(deal_id: int):
             if uploaded:
                 cover_path = uploaded
                 cover_url = public_cover_url(cover_path)
-            elif cover_removal_requested():
-                cover_path = None
-                cover_url = None
             else:
-                cover_path = deal["cover_path"]
-                cover_url = deal["cover_url"]
+                scraped = consume_lookup_cover(current_user_id())
+                if scraped:
+                    blob, ext = scraped
+                    cover_path = store_user_cover_bytes(current_user_id(), blob, ext)
+                    cover_url = public_cover_url(cover_path)
+                elif cover_removal_requested():
+                    cover_path = None
+                    cover_url = None
+                else:
+                    cover_path = deal["cover_path"]
+                    cover_url = deal["cover_url"]
         except ValueError as exc:
             error = str(exc)
         else:
@@ -1276,6 +2055,11 @@ def edit_seed_deal(seed_id: str):
                 promo_code = normalize_promo_code(request.form.get("promo_code") or "")
                 code_note = normalize_code_note(request.form.get("code_note") or "")
                 uploaded_image = save_seed_cover(seed_id)
+                if not uploaded_image:
+                    scraped = consume_lookup_cover(current_user_id())
+                    if scraped:
+                        blob, ext = scraped
+                        uploaded_image = store_seed_cover_bytes(seed_id, blob, ext)
             except ValueError as exc:
                 error = str(exc)
             else:
@@ -1445,7 +2229,7 @@ def api_submit():
         return jsonify(error="Expected form data or JSON"), 400
     try:
         fields = parse_deal_fields(src)
-        cover_path = None if request.is_json else save_cover(current_user_id())
+        cover_path = None if request.is_json else resolve_user_cover(current_user_id())
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     now = utc_now()
