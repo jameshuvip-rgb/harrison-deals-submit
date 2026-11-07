@@ -30,9 +30,15 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 ROOT = Path(__file__).resolve().parent
-DATA = ROOT / "data"
+# SQLite (app.db, seed_overrides) and uploaded covers share one persistent root.
+# Unset locally: both stay next to this file (data/, uploads/).
+# Production: HD_PERSIST_ROOT=/data with a Railway volume mounted at /data.
+# The app creates those two directories on boot. Inbox JSON stays beside the app.
+_persist_root = (os.environ.get("HD_PERSIST_ROOT") or "").strip()
+PERSIST_ROOT = Path(_persist_root) if _persist_root else ROOT
+DATA = PERSIST_ROOT / "data"
 INBOX = ROOT / "inbox"
-UPLOADS = ROOT / "uploads"
+UPLOADS = PERSIST_ROOT / "uploads"
 DB_PATH = DATA / "app.db"
 SECRET_FILE = DATA / "secret_key"
 
