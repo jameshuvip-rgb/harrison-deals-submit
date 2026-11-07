@@ -40,11 +40,14 @@
         <input name="code_note" maxlength="120" value="{{ deal.code_note or '' }}" placeholder="Enter at checkout" />
       </label>
     </div>
-    <label>Replace cover image <span class="hint">{% if deal.cover_path %}current file: {{ deal.cover_path }}{% else %}optional{% endif %}</span>
+    {% if cover_src %}
+    <div>
+      <div class="hint" style="font-weight:600;color:#344054;margin-bottom:6px;">Current cover</div>
+      <img class="cover-preview" src="{{ cover_src }}" alt="Current cover" />
+    </div>
+    {% endif %}
+    <label>Cover image <span class="hint">{% if cover_src %}Upload a new photo to replace the current one. Leave this empty to keep it.{% else %}Upload a product photo (JPG, PNG, WEBP, or GIF).{% endif %}</span>
       <input name="cover" type="file" accept="image/*" />
-    </label>
-    <label>Cover image URL
-      <input name="cover_url" type="url" value="{{ deal.cover_url or '' }}" />
     </label>
     <label>One-line buyer note
       <textarea name="buyer_note" maxlength="500">{{ deal.buyer_note or '' }}</textarea>

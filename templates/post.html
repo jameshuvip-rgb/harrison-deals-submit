@@ -38,11 +38,9 @@
         <input name="code_note" maxlength="120" placeholder="Enter at checkout" />
       </label>
     </div>
-    <label>Cover image <span class="hint">upload preferred — or paste an image URL below</span>
-      <input name="cover" type="file" accept="image/*" />
-    </label>
-    <label>Cover image URL
-      <input name="cover_url" type="url" placeholder="https://…" />
+    <label>Cover image *
+      <span class="hint">Upload a product photo from your computer (JPG, PNG, WEBP, or GIF, max 8MB).</span>
+      <input name="cover" type="file" accept="image/*" required />
     </label>
     <label>One-line buyer note
       <textarea name="buyer_note" maxlength="500" placeholder="Heard the repair quote and decided to DIY…"></textarea>

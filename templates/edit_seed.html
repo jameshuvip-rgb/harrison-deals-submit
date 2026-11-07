@@ -4,7 +4,7 @@
   <h1>Edit seed deal</h1>
   <p class="sub">Admin-only. Changes are saved as an overlay under <code>data/seed_overrides.json</code> (owner stays seed / null).</p>
   {% if error %}<div class="msg err" role="alert">{{ error }}</div>{% endif %}
-  <form class="card" method="post">
+  <form class="card" method="post" enctype="multipart/form-data">
     <label>Product title *
       <input name="title" required maxlength="200" value="{{ deal.title or '' }}" />
     </label>
@@ -48,8 +48,14 @@
     <label>Detail / buyer note
       <textarea name="buyer_note" maxlength="500">{{ deal.buyer_note or '' }}</textarea>
     </label>
-    <label>Cover image URL
-      <input name="cover_url" type="url" value="{{ deal.cover_url or '' }}" />
+    {% if deal.cover_url %}
+    <div>
+      <div class="hint" style="font-weight:600;color:#344054;margin-bottom:6px;">Current cover</div>
+      <img class="cover-preview" src="{{ deal.cover_url }}" alt="Current cover" />
+    </div>
+    {% endif %}
+    <label>Cover image <span class="hint">Upload a new photo to replace the current one. Leave this empty to keep it.</span>
+      <input name="cover" type="file" accept="image/*" />
     </label>
     <label>As-of label
       <input name="as_of" maxlength="40" value="{{ deal.asOf or '' }}" />

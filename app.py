@@ -622,7 +622,6 @@ def parse_deal_fields(src) -> dict:
     buyer_note = (src.get("buyer_note") or "").strip() or None
     if buyer_note and len(buyer_note) > 500:
         raise ValueError("Buyer note is too long")
-    cover_url = (src.get("cover_url") or "").strip() or None
     promo_code = normalize_promo_code(src.get("promo_code") or "")
     code_note = normalize_code_note(src.get("code_note") or "")
 
@@ -634,27 +633,84 @@ def parse_deal_fields(src) -> dict:
         "list_price": list_price,
         "department": department or None,
         "buyer_note": buyer_note,
-        "cover_url": cover_url,
         "promo_code": promo_code,
         "code_note": code_note,
     }
 
 
-def save_cover(user_id: int):
-    f = request.files.get("cover")
-    if not f or not f.filename:
+def public_cover_url(cover_path: str | None) -> str | None:
+    """URL the app already uses for a file stored under uploads/."""
+    if not cover_path:
         return None
+    rel = f"/uploads/{str(cover_path).lstrip('/')}"
+    if PUBLIC_BASE:
+        return f"{PUBLIC_BASE}{rel}"
+    return rel
+
+
+def deal_cover_src(deal) -> str:
+    """Preview src for an existing deal. Keeps legacy cover_url and /static/deals paths."""
+    url = str(_deal_value(deal, "cover_url") or "").strip()
+    if url:
+        return url
+    path = str(_deal_value(deal, "cover_path") or "").strip()
+    if path:
+        return f"/uploads/{path.lstrip('/')}"
+    return ""
+
+
+def _sniff_image_ext(blob: bytes) -> str:
+    if blob.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if blob.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if blob.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if len(blob) >= 12 and blob.startswith(b"RIFF") and blob[8:12] == b"WEBP":
+        return ".webp"
+    raise ValueError("Cover image must be a JPG, PNG, WEBP, or GIF")
+
+
+def read_cover_upload():
+    """Return (bytes, ext) for the cover file field, or None when no file was chosen."""
+    f = request.files.get("cover")
+    if not f or not (f.filename or "").strip():
+        return None
+    ctype = (f.mimetype or "").split(";")[0].strip().lower()
+    if ctype and ctype not in {"application/octet-stream", "binary/octet-stream"} and not ctype.startswith("image/"):
+        raise ValueError("Cover image must be an image file")
     blob = f.read()
+    if not blob:
+        raise ValueError("Cover image file is empty")
     if len(blob) > 8_000_000:
         raise ValueError("Cover image too large (max 8MB)")
-    ext = Path(f.filename).suffix.lower() or ".jpg"
-    if ext not in COVER_EXTS:
-        ext = ".jpg"
+    return blob, _sniff_image_ext(blob)
+
+
+def save_cover(user_id: int):
+    parsed = read_cover_upload()
+    if parsed is None:
+        return None
+    blob, ext = parsed
     folder = UPLOADS / str(user_id)
     folder.mkdir(parents=True, exist_ok=True)
     name = f"{int(time.time())}_{secrets.token_hex(4)}{ext}"
     (folder / name).write_bytes(blob)
     return f"{user_id}/{name}"
+
+
+def save_seed_cover(seed_id: str) -> str | None:
+    """Store a replacement seed cover and return the path written into the seed override."""
+    parsed = read_cover_upload()
+    if parsed is None:
+        return None
+    blob, ext = parsed
+    safe = re.sub(r"[^A-Za-z0-9_-]", "", seed_id)[:40] or "seed"
+    folder = UPLOADS / "seed" / safe
+    folder.mkdir(parents=True, exist_ok=True)
+    name = f"{int(time.time())}_{secrets.token_hex(4)}{ext}"
+    (folder / name).write_bytes(blob)
+    return f"/uploads/seed/{safe}/{name}"
 
 
 def _deal_value(deal: sqlite3.Row | dict, key: str, default=None):
@@ -873,13 +929,13 @@ def post_deal():
         try:
             fields = parse_deal_fields(request.form)
             cover_path = save_cover(current_user_id())
+            if not cover_path:
+                raise ValueError("Cover image is required")
         except ValueError as exc:
             error = str(exc)
         else:
             now = utc_now()
-            cover_url = fields["cover_url"]
-            if cover_path and PUBLIC_BASE:
-                cover_url = f"{PUBLIC_BASE}/uploads/{cover_path}"
+            cover_url = public_cover_url(cover_path)
             db = get_db()
             cur = db.execute(
                 """
@@ -956,13 +1012,16 @@ def edit_deal(deal_id: int):
     if request.method == "POST":
         try:
             fields = parse_deal_fields(request.form)
-            cover_path = save_cover(current_user_id()) or deal["cover_path"]
+            uploaded = save_cover(current_user_id())
+            if uploaded:
+                cover_path = uploaded
+                cover_url = public_cover_url(cover_path)
+            else:
+                cover_path = deal["cover_path"]
+                cover_url = deal["cover_url"]
         except ValueError as exc:
             error = str(exc)
         else:
-            cover_url = fields["cover_url"] if fields["cover_url"] is not None else deal["cover_url"]
-            if request.files.get("cover") and request.files.get("cover").filename and PUBLIC_BASE:
-                cover_url = f"{PUBLIC_BASE}/uploads/{cover_path}"
             now = utc_now()
             db = get_db()
             # Never change owner_email — even when an admin edits someone else's deal.
@@ -1001,6 +1060,7 @@ def edit_deal(deal_id: int):
         "edit.html",
         error=error,
         deal=deal,
+        cover_src=deal_cover_src(deal),
         departments=DEPTS,
         editing_as_admin=is_admin() and deal["owner_email"] != current_email(),
     )
@@ -1062,9 +1122,11 @@ def edit_seed_deal(seed_id: str):
                 was = parse_price(request.form.get("list_price"), "List price")
                 promo_code = normalize_promo_code(request.form.get("promo_code") or "")
                 code_note = normalize_code_note(request.form.get("code_note") or "")
+                uploaded_image = save_seed_cover(seed_id)
             except ValueError as exc:
                 error = str(exc)
             else:
+                image = uploaded_image or current.get("image")
                 patch = {
                     "title": title[:200],
                     "line": (request.form.get("line") or "").strip(),
@@ -1074,7 +1136,7 @@ def edit_seed_deal(seed_id: str):
                     "was": was if was is not None else current.get("was"),
                     "href": (request.form.get("amazon_url") or current.get("href") or "").strip(),
                     "category": (request.form.get("category") or current.get("category") or "").strip().lower(),
-                    "image": (request.form.get("cover_url") or current.get("image") or "").strip() or current.get("image"),
+                    "image": image,
                     "asOf": (request.form.get("as_of") or current.get("asOf") or "").strip(),
                     "promo_code": promo_code or "",
                     "code_note": code_note or "",
@@ -1225,13 +1287,11 @@ def api_submit():
         return jsonify(error="Expected form data or JSON"), 400
     try:
         fields = parse_deal_fields(src)
-        cover_path = save_cover(current_user_id()) if not request.is_json else None
+        cover_path = None if request.is_json else save_cover(current_user_id())
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     now = utc_now()
-    cover_url = fields["cover_url"]
-    if cover_path and PUBLIC_BASE:
-        cover_url = f"{PUBLIC_BASE}/uploads/{cover_path}"
+    cover_url = public_cover_url(cover_path)
     db = get_db()
     cur = db.execute(
         """
