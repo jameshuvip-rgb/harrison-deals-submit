@@ -4,7 +4,7 @@
   <h1>Edit seed deal</h1>
   <p class="sub">Admin-only. Changes are saved as an overlay under <code>data/seed_overrides.json</code> (owner stays seed / null).</p>
   {% if error %}<div class="msg err" role="alert">{{ error }}</div>{% endif %}
-  <form class="card" method="post" enctype="multipart/form-data">
+  <form class="card" method="post" enctype="multipart/form-data" data-seed-id="{{ deal.id }}">
     {% set cover_required = false %}
     {% set current_cover = deal.cover_url %}
     {% set cover_hint = 'One photo only. Choose a file to replace the current cover when you save, or leave it unchanged. Clear removes it.' %}

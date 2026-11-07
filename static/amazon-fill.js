@@ -70,10 +70,15 @@
 
   function lookup(url) {
     var mine = ++seq;
+    var payload = { url: url };
+    var dealId = form.getAttribute("data-deal-id");
+    var seedId = form.getAttribute("data-seed-id");
+    if (dealId) payload.deal_id = dealId;
+    if (seedId) payload.seed_id = seedId;
     fetch("/api/amazon-lookup", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ url: url }),
+      body: JSON.stringify(payload),
     })
       .then(function (response) {
         return response.json().then(function (body) {
@@ -107,7 +112,7 @@
         var messages = body.messages && body.messages.length
           ? body.messages
           : ["Couldn't fetch price — enter manually", "Cover unavailable — upload your own"];
-        setStatus(messages, body.deal_price == null ? "err" : "ok");
+        setStatus(messages, body.duplicate || body.deal_price == null ? "err" : "ok");
       })
       .catch(function () {
         if (mine !== seq) return;

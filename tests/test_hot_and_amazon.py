@@ -203,6 +203,74 @@ class AmazonParseTests(unittest.TestCase):
         self.assertEqual(info["deal_price"], 20.0)
         self.assertIsNone(info["list_price"])
 
+    def test_landing_image_prefers_hires_over_carousel(self):
+        html = """
+        <img id="landingImage"
+             src="https://m.media-amazon.com/images/I/71main._AC_SX679_.jpg"
+             data-old-hires="https://m.media-amazon.com/images/I/71main._AC_SL1500_.jpg"
+             data-a-dynamic-image="{&quot;https://m.media-amazon.com/images/I/71main._AC_SX466_.jpg&quot;:[466,466],&quot;https://m.media-amazon.com/images/I/71main._AC_SX679_.jpg&quot;:[679,679]}" />
+        "hiRes":"https://m.media-amazon.com/images/I/81other._AC_UL2000_.jpg"
+        <meta property="og:image" content="https://m.media-amazon.com/images/I/71main._AC_SX522_.jpg" />
+        """
+        info = hd.parse_amazon_html(html)
+        self.assertEqual(
+            info["image_url"],
+            "https://m.media-amazon.com/images/I/71main._AC_SL1500_.jpg",
+        )
+        self.assertLessEqual(len(info["image_candidates"]), 2)
+        self.assertEqual(info["image_candidates"][0], info["image_url"])
+
+    def test_small_landing_image_upgrades_to_sl1500(self):
+        html = """
+        <img id="landingImage"
+             data-a-dynamic-image="{&quot;https://m.media-amazon.com/images/I/71dyn._AC_SX466_.jpg&quot;:[466,466],&quot;https://m.media-amazon.com/images/I/71dyn._AC_SX679_.jpg&quot;:[679,679]}"
+             src="https://m.media-amazon.com/images/I/71dyn._AC_SX466_.jpg" />
+        """
+        info = hd.parse_amazon_html(html)
+        self.assertEqual(
+            info["image_url"],
+            "https://m.media-amazon.com/images/I/71dyn._AC_SL1500_.jpg",
+        )
+        self.assertIn(
+            "https://m.media-amazon.com/images/I/71dyn._AC_SX679_.jpg",
+            info["image_candidates"],
+        )
+
+    def test_escaped_hires_and_og_image_and_foreign_host(self):
+        escaped = hd.parse_amazon_html(
+            r'"hiRes":"https:\/\/m.media-amazon.com\/images\/I\/71esc._AC_SL1500_.jpg"'
+        )
+        self.assertEqual(
+            escaped["image_url"],
+            "https://m.media-amazon.com/images/I/71esc._AC_SL1500_.jpg",
+        )
+        og = hd.parse_amazon_html(
+            '<meta content="https://m.media-amazon.com/images/I/71og._AC_SL1500_.jpg" property="og:image" />'
+        )
+        self.assertEqual(
+            og["image_url"],
+            "https://m.media-amazon.com/images/I/71og._AC_SL1500_.jpg",
+        )
+        foreign = hd.parse_amazon_html(
+            '"hiRes":"https://evil.example/images/I/71nope._AC_SL1500_.jpg" '
+            '<meta property="og:image" content="https://m.media-amazon.com/images/I/71ok.jpg" />'
+        )
+        self.assertEqual(foreign["image_url"], "https://m.media-amazon.com/images/I/71ok.jpg")
+
+    def test_product_identity_uses_asin_or_url(self):
+        asins, markets = hd.product_identity(
+            "b0abcdefgh",
+            "https://www.amazon.ca/Name/dp/B0ABCDEFGH/ref=sr_1_1?tag=x",
+        )
+        self.assertEqual(asins, {"B0ABCDEFGH"})
+        self.assertEqual(markets, {("ca", "B0ABCDEFGH")})
+        asins, markets = hd.product_identity(
+            "B0AAAAAAAA",
+            "https://www.amazon.com/gp/product/B0BBBBBBBB",
+        )
+        self.assertEqual(asins, {"B0AAAAAAAA", "B0BBBBBBBB"})
+        self.assertEqual(markets, {("com", "B0BBBBBBBB")})
+
 
 class AppFlowTests(unittest.TestCase):
     def setUp(self):
@@ -383,7 +451,7 @@ class AppFlowTests(unittest.TestCase):
             calls.append(url)
             return None
 
-        def no_image(url):
+        def no_image(url, referer=None):
             raise AssertionError(url)
 
         original_html = hd.fetch_amazon_html
@@ -391,42 +459,46 @@ class AppFlowTests(unittest.TestCase):
         hd.fetch_amazon_html = no_html
         hd.fetch_amazon_image = no_image
         try:
-            bad = self.client.post("/api/amazon-lookup", json={"url": "https://example.com/dp/B0HHJ93L1P"})
+            bad = self.client.post("/api/amazon-lookup", json={"url": "https://example.com/dp/B0LOOKUP01"})
             self.assertEqual(bad.status_code, 400)
             self.assertEqual(calls, [])
             soft = self.client.post(
                 "/api/amazon-lookup",
-                json={"url": "https://www.amazon.com/Some-Name/dp/B0HHJ93L1P?ref=abc"},
+                json={"url": "https://www.amazon.com/Some-Name/dp/B0LOOKUP01?ref=abc"},
             )
             payload = soft.get_json()
             self.assertTrue(payload["ok"])
-            self.assertEqual(payload["asin"], "B0HHJ93L1P")
+            self.assertEqual(payload["asin"], "B0LOOKUP01")
             self.assertIsNone(payload["deal_price"])
+            self.assertFalse(payload["duplicate"])
             self.assertIn(hd.MSG_NO_PRICE, payload["messages"])
             self.assertIn(hd.MSG_NO_COVER, payload["messages"])
-            self.assertEqual(calls, ["https://www.amazon.com/dp/B0HHJ93L1P"])
+            self.assertNotIn(hd.MSG_DUPLICATE, payload["messages"])
+            self.assertEqual(calls, ["https://www.amazon.com/dp/B0LOOKUP01"])
 
             def good_html(url, accept_language):
                 calls.append((url, accept_language))
                 return SAMPLE_HTML
 
-            def good_image(url):
+            def good_image(url, referer=None):
                 self.assertTrue(url.startswith("https://m.media-amazon.com/"))
+                self.assertTrue(referer)
                 return TINY_PNG
 
             hd.fetch_amazon_html = good_html
             hd.fetch_amazon_image = good_image
             filled = self.client.post(
                 "/api/amazon-lookup",
-                json={"url": "https://www.amazon.ca/dp/B0HHJ93L1P"},
+                json={"url": "https://www.amazon.ca/dp/B0LOOKUP01"},
             )
             body = filled.get_json()
             self.assertEqual(body["messages"], [hd.MSG_FILLED])
+            self.assertFalse(body["duplicate"])
             self.assertEqual(body["title"], "Honda Cabin Filter Kit")
             self.assertEqual(body["deal_price"], 19.99)
             self.assertEqual(body["list_price"], 34.99)
             self.assertTrue(body["cover_token"])
-            self.assertEqual(calls[-1][0], "https://www.amazon.ca/dp/B0HHJ93L1P")
+            self.assertEqual(calls[-1][0], "https://www.amazon.ca/dp/B0LOOKUP01")
             self.assertIn("en-CA", calls[-1][1])
         finally:
             hd.fetch_amazon_html = original_html
@@ -438,7 +510,7 @@ class AppFlowTests(unittest.TestCase):
             data={
                 "title": body["title"],
                 "asin": body["asin"],
-                "amazon_url": "https://www.amazon.ca/dp/B0HHJ93L1P",
+                "amazon_url": "https://www.amazon.ca/dp/B0LOOKUP01",
                 "deal_price": "19.99",
                 "list_price": "34.99",
                 "department": "Automotive",
@@ -450,7 +522,7 @@ class AppFlowTests(unittest.TestCase):
         row = db.execute("SELECT title, asin, deal_price, list_price, cover_path FROM deals").fetchone()
         db.close()
         self.assertEqual(row[0], "Honda Cabin Filter Kit")
-        self.assertEqual(row[1], "B0HHJ93L1P")
+        self.assertEqual(row[1], "B0LOOKUP01")
         self.assertEqual(row[2], 19.99)
         self.assertEqual(row[3], 34.99)
         self.assertTrue(row[4])
@@ -489,6 +561,300 @@ class AppFlowTests(unittest.TestCase):
         db.close()
         self.assertTrue((hd.UPLOADS / cover).read_bytes().endswith(b"UPLOAD"))
         self.assertTrue((folder / f"{token}.png").is_file())
+
+    def _post_deal(self, asin="", amazon_url=None, title="Seller filter", client=None, **extra):
+        client = client or self.client
+        if amazon_url is None and asin:
+            amazon_url = f"https://www.amazon.ca/dp/{asin}"
+        data = {
+            "title": title,
+            "asin": asin,
+            "amazon_url": amazon_url or "",
+            "deal_price": "12.00",
+            "list_price": "20.00",
+            "department": "Automotive",
+            "cover": (io.BytesIO(TINY_PNG), "cover.png"),
+        }
+        data.update(extra)
+        return client.post("/post", data=data)
+
+    def _deal_id(self) -> int:
+        db = sqlite3.connect(hd.DB_PATH)
+        deal_id = db.execute("SELECT id FROM deals ORDER BY id DESC").fetchone()[0]
+        db.close()
+        return int(deal_id)
+
+    def test_duplicate_asin_and_normalized_url_are_rejected(self):
+        self._register()
+        first = self._post_deal("B0DUPASIN1", title="First listing")
+        self.assertEqual(first.status_code, 302)
+
+        again = self._post_deal("b0dupasin1", title="Same ASIN different case")
+        self.assertEqual(again.status_code, 200)
+        self.assertIn(hd.MSG_DUPLICATE, again.get_data(as_text=True))
+
+        other_market = self._post_deal(
+            "B0DUPASIN1",
+            amazon_url="https://www.amazon.com/dp/B0DUPASIN1",
+            title="Same ASIN on dot com",
+        )
+        self.assertIn(hd.MSG_DUPLICATE, other_market.get_data(as_text=True))
+
+        shaped = self._post_deal(
+            "",
+            amazon_url="https://www.amazon.ca/Some-Long-Name/gp/product/B0DUPASIN1/ref=sr_1_1?tag=x",
+            title="Same product, different URL text",
+        )
+        self.assertIn(hd.MSG_DUPLICATE, shaped.get_data(as_text=True))
+
+        db = sqlite3.connect(hd.DB_PATH)
+        db.execute("UPDATE deals SET asin = ? WHERE asin = ?", ("b0dupasin1", "B0DUPASIN1"))
+        db.commit()
+        db.close()
+        stranger = hd.app.test_client()
+        self._register("other@example.com", stranger)
+        lowered = self._post_deal("B0DUPASIN1", title="Stored lowercase ASIN", client=stranger)
+        self.assertIn(hd.MSG_DUPLICATE, lowered.get_data(as_text=True))
+
+        fresh = self._post_deal("B0DUPASIN2", title="Different product", client=stranger)
+        self.assertEqual(fresh.status_code, 302)
+
+        db = sqlite3.connect(hd.DB_PATH)
+        count = db.execute("SELECT COUNT(*) FROM deals WHERE deleted_at IS NULL").fetchone()[0]
+        db.close()
+        self.assertEqual(count, 2)
+
+    def test_deleted_deal_asin_can_be_posted_again(self):
+        self._register()
+        self.assertEqual(self._post_deal("B0REPOST01").status_code, 302)
+        deal_id = self._deal_id()
+        removed = self.client.post(f"/deals/{deal_id}/delete")
+        self.assertEqual(removed.status_code, 302)
+        again = self._post_deal("B0REPOST01", title="Reposted after delete")
+        self.assertEqual(again.status_code, 302)
+        db = sqlite3.connect(hd.DB_PATH)
+        live = db.execute(
+            "SELECT COUNT(*) FROM deals WHERE asin = ? AND deleted_at IS NULL",
+            ("B0REPOST01",),
+        ).fetchone()[0]
+        db.close()
+        self.assertEqual(live, 1)
+
+    def test_seed_asin_is_rejected_until_the_seed_is_removed(self):
+        self._register()
+        blocked = self._post_deal("B0HHJ93L1P", title="Copy of a catalog deal")
+        self.assertEqual(blocked.status_code, 200)
+        self.assertIn(hd.MSG_DUPLICATE, blocked.get_data(as_text=True))
+        url_only = self._post_deal(
+            "",
+            amazon_url="https://www.amazon.ca/Toyota-Filter/dp/B0HHJ93L1P?ref=1",
+            title="Catalog link without an ASIN field",
+        )
+        self.assertIn(hd.MSG_DUPLICATE, url_only.get_data(as_text=True))
+        db = sqlite3.connect(hd.DB_PATH)
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM deals").fetchone()[0], 0)
+        db.close()
+
+        try:
+            hd.save_deleted_seed_ids({"B0HHJ93L1P"})
+            allowed = self._post_deal("B0HHJ93L1P", title="Seed was taken down")
+            self.assertEqual(allowed.status_code, 302)
+        finally:
+            hd.save_deleted_seed_ids(set())
+
+    def test_edit_keeps_same_asin_and_blocks_a_different_product(self):
+        self._register()
+        self.assertEqual(self._post_deal("B0EDITKEEP", title="Original title").status_code, 302)
+        deal_id = self._deal_id()
+        self.assertEqual(self._post_deal("B0EDITOTH1", title="Other product").status_code, 302)
+
+        kept = self.client.post(
+            f"/deals/{deal_id}/edit",
+            data={
+                "title": "Renamed but same product",
+                "asin": "b0editkeep",
+                "amazon_url": "https://www.amazon.ca/Renamed/gp/product/B0EDITKEEP/ref=abc",
+                "deal_price": "14.50",
+                "list_price": "20.00",
+                "department": "Automotive",
+            },
+        )
+        self.assertEqual(kept.status_code, 302)
+        db = sqlite3.connect(hd.DB_PATH)
+        title, asin = db.execute(
+            "SELECT title, asin FROM deals WHERE id = ?",
+            (deal_id,),
+        ).fetchone()
+        db.close()
+        self.assertEqual(title, "Renamed but same product")
+        self.assertEqual(asin, "B0EDITKEEP")
+
+        conflict = self.client.post(
+            f"/deals/{deal_id}/edit",
+            data={
+                "title": "Should not stick",
+                "asin": "B0EDITOTH1",
+                "amazon_url": "https://www.amazon.com/dp/B0EDITOTH1",
+                "deal_price": "9.00",
+                "department": "Tools",
+            },
+        )
+        self.assertEqual(conflict.status_code, 200)
+        self.assertIn(hd.MSG_DUPLICATE, conflict.get_data(as_text=True))
+        db = sqlite3.connect(hd.DB_PATH)
+        title, asin, price = db.execute(
+            "SELECT title, asin, deal_price FROM deals WHERE id = ?",
+            (deal_id,),
+        ).fetchone()
+        db.close()
+        self.assertEqual(title, "Renamed but same product")
+        self.assertEqual(asin, "B0EDITKEEP")
+        self.assertEqual(price, 14.5)
+
+        seed_swap = self.client.post(
+            f"/deals/{deal_id}/edit",
+            data={
+                "title": "Seed grab",
+                "asin": "B0HF7Q25KL",
+                "amazon_url": "https://www.amazon.ca/dp/B0HF7Q25KL",
+                "deal_price": "8.00",
+                "department": "Sports",
+            },
+        )
+        self.assertIn(hd.MSG_DUPLICATE, seed_swap.get_data(as_text=True))
+        db = sqlite3.connect(hd.DB_PATH)
+        self.assertEqual(
+            db.execute("SELECT asin FROM deals WHERE id = ?", (deal_id,)).fetchone()[0],
+            "B0EDITKEEP",
+        )
+        db.close()
+
+    def test_deals_without_an_amazon_identity_are_not_duplicates(self):
+        self._register()
+        first = self._post_deal("", amazon_url="", title="No link one")
+        second = self._post_deal("", amazon_url="", title="No link two")
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 302)
+
+    def test_api_submit_rejects_duplicate_asin(self):
+        self._register()
+        payload = {
+            "title": "API deal",
+            "asin": "B0APIDUP01",
+            "amazon_url": "https://www.amazon.ca/dp/B0APIDUP01",
+            "deal_price": "5.00",
+        }
+        first = self.client.post("/api/submit", json=payload)
+        self.assertEqual(first.status_code, 200)
+        second = self.client.post("/api/submit", json=payload)
+        self.assertEqual(second.status_code, 400)
+        self.assertEqual(second.get_json()["error"], hd.MSG_DUPLICATE)
+
+    def test_lookup_warns_on_duplicate_but_still_fills(self):
+        self._register()
+        self.assertEqual(self._post_deal("B0WARNAS01", title="Already live").status_code, 302)
+        deal_id = self._deal_id()
+
+        def good_html(url, accept_language):
+            return SAMPLE_HTML
+
+        def image_calls(url, referer=None):
+            image_calls.urls.append(url)
+            if url.endswith("._AC_SL1500_.jpg"):
+                return None
+            return TINY_PNG
+
+        image_calls.urls = []
+        original_html = hd.fetch_amazon_html
+        original_image = hd.fetch_amazon_image
+        hd.fetch_amazon_html = good_html
+        hd.fetch_amazon_image = image_calls
+        try:
+            warned = self.client.post(
+                "/api/amazon-lookup",
+                json={"url": "https://www.amazon.ca/Different-Text/dp/B0WARNAS01?ref=1"},
+            )
+            body = warned.get_json()
+            self.assertTrue(body["ok"])
+            self.assertEqual(body["asin"], "B0WARNAS01")
+            self.assertTrue(body["duplicate"])
+            self.assertIn(hd.MSG_DUPLICATE, body["messages"])
+            self.assertEqual(body["title"], "Honda Cabin Filter Kit")
+
+            own = self.client.post(
+                "/api/amazon-lookup",
+                json={
+                    "url": "https://www.amazon.ca/dp/B0WARNAS01",
+                    "deal_id": deal_id,
+                },
+            )
+            own_body = own.get_json()
+            self.assertFalse(own_body["duplicate"])
+            self.assertNotIn(hd.MSG_DUPLICATE, own_body["messages"])
+
+            stranger = hd.app.test_client()
+            self._register("third@example.com", stranger)
+            hidden = stranger.post(
+                "/api/amazon-lookup",
+                json={"url": "https://www.amazon.ca/dp/B0WARNAS01", "deal_id": deal_id},
+            )
+            self.assertTrue(hidden.get_json()["duplicate"])
+
+            catalog = self.client.post(
+                "/api/amazon-lookup",
+                json={"url": "https://www.amazon.ca/dp/B0HHJ93L1P"},
+            )
+            self.assertTrue(catalog.get_json()["duplicate"])
+            self.assertEqual(catalog.get_json()["asin"], "B0HHJ93L1P")
+        finally:
+            hd.fetch_amazon_html = original_html
+            hd.fetch_amazon_image = original_image
+
+    def test_cover_fetch_falls_back_once_when_largest_url_fails(self):
+        self._register()
+        page = """
+        <span id="productTitle">Fallback Cover</span>
+        <img id="landingImage" src="https://m.media-amazon.com/images/I/71fall._AC_SX679_.jpg" />
+        "priceToPay":{"priceAmount":11.00}
+        """
+
+        def good_html(url, accept_language):
+            good_html.calls.append(url)
+            return page
+
+        def flaky_image(url, referer=None):
+            flaky_image.urls.append(url)
+            if url.endswith("._AC_SL1500_.jpg"):
+                return None
+            if url.endswith("._AC_SX679_.jpg"):
+                return TINY_PNG
+            raise AssertionError(url)
+
+        good_html.calls = []
+        flaky_image.urls = []
+        original_html = hd.fetch_amazon_html
+        original_image = hd.fetch_amazon_image
+        hd.fetch_amazon_html = good_html
+        hd.fetch_amazon_image = flaky_image
+        try:
+            response = self.client.post(
+                "/api/amazon-lookup",
+                json={"url": "https://www.amazon.ca/dp/B0FALLBK01"},
+            )
+            body = response.get_json()
+            self.assertTrue(body["cover_token"])
+            self.assertNotIn(hd.MSG_NO_COVER, body["messages"])
+            self.assertEqual(good_html.calls, ["https://www.amazon.ca/dp/B0FALLBK01"])
+            self.assertEqual(
+                flaky_image.urls,
+                [
+                    "https://m.media-amazon.com/images/I/71fall._AC_SL1500_.jpg",
+                    "https://m.media-amazon.com/images/I/71fall._AC_SX679_.jpg",
+                ],
+            )
+        finally:
+            hd.fetch_amazon_html = original_html
+            hd.fetch_amazon_image = original_image
 
 
 if __name__ == "__main__":
