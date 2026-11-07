@@ -572,6 +572,9 @@ def build_live_activity(merged: list[dict], limit: int = 16) -> list[dict]:
                 "rel_time": relative_time_label(deal),
                 "event": event,
                 "is_new": is_new,
+                "track_key": deal.get("track_key") or "",
+                "favorites": int(deal.get("favorites") or 0),
+                "favorited": bool(deal.get("favorited")),
             }
         )
     return out

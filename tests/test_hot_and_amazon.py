@@ -239,16 +239,17 @@ class AppFlowTests(unittest.TestCase):
     def test_home_fallback_shows_two_imaged_discount_leaders(self):
         html = self._html("/")
         self.assertEqual(html.count('class="feat-card"'), 3)
-        self.assertIn("grid-template-columns:repeat(3, minmax(0, 1fr))", html)
-        self.assertNotIn("Today's pick", html)
+        self.assertIn(".feat-card .thumb { width:100%; height:190px;", html)
+        self.assertIn("Today's pick", html)
+        self.assertNotIn("height:148px", html)
+        self.assertNotIn("hot-pill", html)
         self.assertEqual(feat_ids(html), ["B0HC3N5BHW", "B0HF7Q25KL", "B0HF81MTRH"])
-        self.assertIn("Most viewed in 30 minutes, biggest discount, then most saved", html)
         self.assertIn(">Save<", html)
 
     def test_search_hides_hot_deals_and_category_stays_in_pool(self):
         search = self._html("/?q=tesla")
         self.assertEqual(search.count('class="feat-card"'), 0)
-        self.assertNotIn("Most viewed in 30 minutes", search)
+        self.assertEqual(search.count("Today's pick"), 0)
         self.assertIn("Tesla", search)
 
         sports = self._html("/?cat=sports")
@@ -268,8 +269,7 @@ class AppFlowTests(unittest.TestCase):
         html = self._html("/")
         ids = feat_ids(html)
         self.assertEqual(ids, ["B0HHJ93L1P", "B0HC3N5BHW", "B0HF7Q25KL"])
-        self.assertIn("Most viewed", html)
-        self.assertIn("1 view in 30 min", html)
+        self.assertIn("Today's pick", html)
 
         other = hd.app.test_client()
         again = other.post(
@@ -317,7 +317,9 @@ class AppFlowTests(unittest.TestCase):
         self.assertTrue(body["favorited"])
         self.assertEqual(body["favorites"], 1)
         html = self._html("/")
-        self.assertIn("Saved · 1", html)
+        self.assertIn('data-track="seed:B0HF7Q25KL"', html)
+        self.assertIn('data-favorited="1"', html)
+        self.assertIn('data-favorites="1"', html)
 
         off = self.client.post("/api/deals/favorite", json={"track_key": "seed:B0HF7Q25KL"})
         self.assertFalse(off.get_json()["favorited"])
@@ -339,7 +341,7 @@ class AppFlowTests(unittest.TestCase):
         db.close()
         html = self._html("/")
         self.assertEqual(feat_ids(html)[0], "B0HF7Q25KL")
-        self.assertIn("3 saved", html)
+        self.assertIn('data-favorites="3"', html)
 
     def test_user_deal_is_eligible(self):
         self._register()
