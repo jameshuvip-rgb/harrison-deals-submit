@@ -5,6 +5,10 @@
   <p class="sub">Share a Canada Amazon discount. It goes to review (Pending) under your email.</p>
   {% if error %}<div class="msg err" role="alert">{{ error }}</div>{% endif %}
   <form class="card" method="post" enctype="multipart/form-data">
+    <label>Cover image *
+      <span class="hint">Upload a product photo from your computer (JPG, PNG, WEBP, or GIF, max 8MB).</span>
+      <input name="cover" type="file" accept="image/*" required />
+    </label>
     <label>Product title *
       <input name="title" required maxlength="200" placeholder="Cabin air filter for Honda Civic…" />
     </label>
@@ -38,10 +42,6 @@
         <input name="code_note" maxlength="120" placeholder="Enter at checkout" />
       </label>
     </div>
-    <label>Cover image *
-      <span class="hint">Upload a product photo from your computer (JPG, PNG, WEBP, or GIF, max 8MB).</span>
-      <input name="cover" type="file" accept="image/*" required />
-    </label>
     <label>One-line buyer note
       <textarea name="buyer_note" maxlength="500" placeholder="Heard the repair quote and decided to DIY…"></textarea>
     </label>
