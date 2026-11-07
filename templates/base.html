@@ -86,9 +86,11 @@
         {% if session.email %}
           <a href="{{ url_for('my_deals') }}">My deals</a>
           <a class="btn" href="{{ url_for('post_deal') }}">Post a deal</a>
+          <a href="{{ url_for('contact') }}">Contact</a>
           <span class="who">{{ session.email }}</span>
           <a href="{{ url_for('logout') }}">Log out</a>
         {% else %}
+          <a href="{{ url_for('contact') }}">Contact</a>
           <a href="{{ url_for('login') }}">Log in</a>
           <a class="btn" href="{{ url_for('register') }}">Register</a>
         {% endif %}

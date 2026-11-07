@@ -56,6 +56,9 @@ ASIN_RE = re.compile(r"^[A-Z0-9]{10}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PROMO_CODE_RE = re.compile(r"^[A-Z0-9](?:[A-Z0-9_-]{0,31})$")
 CODE_NOTE_MAX = 120
+CONTACT_TITLE_MAX = 120
+CONTACT_MESSAGE_MAX = 4000
+CONTACT_EMAIL_MAX = 254
 COVER_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 # 8 MiB image cap. The request cap is a little higher so the multipart
 # form around an 8MB file is not rejected before we can save it or show
@@ -536,6 +539,15 @@ def init_db() -> None:
             deleted_at TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_deals_owner ON deals(owner_email);
+        CREATE TABLE IF NOT EXISTS contact_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            email TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_contact_messages_created
+            ON contact_messages(created_at);
         """
     )
     ensure_deal_columns(db)
@@ -758,6 +770,67 @@ def _deal_value(deal: sqlite3.Row | dict, key: str, default=None):
         return default
 
 
+def parse_contact_fields(src) -> dict:
+    title = " ".join((src.get("title") or "").split())
+    message = (src.get("message") or "").strip()
+    email = normalize_email(src.get("email") or "")
+    if not title:
+        raise ValueError("Title is required")
+    if len(title) > CONTACT_TITLE_MAX:
+        raise ValueError("Title is too long")
+    if not message:
+        raise ValueError("Message is required")
+    if len(message) > CONTACT_MESSAGE_MAX:
+        raise ValueError("Message is too long")
+    if not email:
+        raise ValueError("Email is required")
+    if len(email) > CONTACT_EMAIL_MAX or not EMAIL_RE.match(email):
+        raise ValueError("Enter a valid email address")
+    return {"title": title, "message": message, "email": email}
+
+
+def write_contact_event(row: sqlite3.Row) -> str:
+    """Inbox-style JSON under the persist root. Kept out of inbox/ so the deal drain ignores it."""
+    event_id = str(uuid.uuid4())
+    payload = {
+        "id": event_id,
+        "action": "contact",
+        "local_id": row["id"],
+        "title": row["title"],
+        "message": row["message"],
+        "email": row["email"],
+        "created_at": row["created_at"],
+        "submitted_at": utc_now(),
+    }
+    folder = DATA / "contact_events"
+    folder.mkdir(parents=True, exist_ok=True)
+    out = folder / f"{event_id}.json"
+    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return event_id
+
+
+def save_contact_message(fields: dict) -> int:
+    now = utc_now()
+    db = get_db()
+    cur = db.execute(
+        """
+        INSERT INTO contact_messages (title, message, email, created_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (fields["title"], fields["message"], fields["email"], now),
+    )
+    db.commit()
+    row = db.execute(
+        "SELECT * FROM contact_messages WHERE id = ?",
+        (cur.lastrowid,),
+    ).fetchone()
+    try:
+        write_contact_event(row)
+    except OSError:
+        pass
+    return int(cur.lastrowid)
+
+
 def write_inbox(action: str, deal: sqlite3.Row | dict) -> str:
     event_id = str(uuid.uuid4())
     cover_path = deal["cover_path"]
@@ -897,6 +970,36 @@ def home():
         featured_list=featured_list,
         live_activity=live_activity,
         live_scoped=live_scoped,
+    )
+
+
+@app.route("/contact", methods=["GET", "POST"])
+def contact():
+    error = None
+    title = ""
+    message = ""
+    email = current_email()
+    if request.method == "POST":
+        title = request.form.get("title") or ""
+        message = request.form.get("message") or ""
+        email = request.form.get("email") or ""
+        try:
+            fields = parse_contact_fields(request.form)
+        except ValueError as exc:
+            error = str(exc)
+        else:
+            save_contact_message(fields)
+            flash("Thanks. Your message was sent.")
+            return redirect(url_for("contact"))
+    return render_template(
+        "contact.html",
+        error=error,
+        title=title,
+        message=message,
+        email=email,
+        title_max=CONTACT_TITLE_MAX,
+        message_max=CONTACT_MESSAGE_MAX,
+        email_max=CONTACT_EMAIL_MAX,
     )
 
 
