@@ -502,6 +502,41 @@ def pick_hot_deals(feed: list[dict], limit: int = HOT_LIMIT) -> list[dict]:
     return result
 
 
+def load_public_catalog() -> list[dict]:
+    """Live deals with a real image. User posts first, then seed. Engagement attached."""
+    seeded = [
+        enrich_deal(d)
+        for d in apply_seed_overlay(load_seed_deals())
+        if d.get("live") is not False
+    ]
+    user_cards = [enrich_deal(d) for d in load_user_deal_cards()]
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for item in user_cards + seeded:
+        key = str(item.get("id") or "")
+        if not key or key in seen:
+            continue
+        if not has_real_image(item):
+            continue
+        seen.add(key)
+        merged.append(item)
+    attach_engagement(merged)
+    return merged
+
+
+def favorite_keys_for(email: str) -> list[str]:
+    """This user's saved deals, newest save first."""
+    rows = get_db().execute(
+        """
+        SELECT deal_key FROM deal_favorites
+        WHERE user_email = ?
+        ORDER BY datetime(created_at) DESC, rowid DESC
+        """,
+        (email,),
+    ).fetchall()
+    return [str(row["deal_key"]) for row in rows]
+
+
 def sort_feed(feed: list[dict], sort: str) -> list[dict]:
     sort = (sort or "latest").strip().lower()
     if sort == "off":
@@ -2017,25 +2052,9 @@ def home():
     sort = (request.args.get("sort") or "latest").strip().lower()
     if sort not in {"latest", "off", "price"}:
         sort = "latest"
-    seeded = [
-        enrich_deal(d)
-        for d in apply_seed_overlay(load_seed_deals())
-        if d.get("live") is not False
-    ]
-    user_cards = [enrich_deal(d) for d in load_user_deal_cards()]
-    # User deals first (newest), then seed — stable unique by id
-    merged: list[dict] = []
-    seen: set[str] = set()
-    for item in user_cards + seeded:
-        key = str(item.get("id") or "")
-        if not key or key in seen:
-            continue
-        # Public feed: skip cards without a real product image
-        if not has_real_image(item):
-            continue
-        seen.add(key)
-        merged.append(item)
-    attach_engagement(merged)
+    # User deals first (newest), then seed — stable unique by id.
+    # Public feed skips cards without a real product image.
+    merged = load_public_catalog()
     counts = {"all": len(merged)}
     for item in merged:
         key = str(item.get("category") or "")
@@ -2089,6 +2108,44 @@ def home():
         featured_list=featured_list,
         live_activity=live_activity,
         live_scoped=live_scoped,
+        saved_view=False,
+    )
+
+
+@app.get("/saved")
+@login_required
+def saved_deals():
+    """Deals the signed-in user has saved. Same cards and favorite toggle as the feed."""
+    sort = (request.args.get("sort") or "latest").strip().lower()
+    if sort not in {"latest", "off", "price"}:
+        sort = "latest"
+    merged = load_public_catalog()
+    order = {key: index for index, key in enumerate(favorite_keys_for(current_email()))}
+    feed = [d for d in merged if str(d.get("track_key") or "") in order]
+    if sort == "latest":
+        feed.sort(key=lambda d: order[str(d.get("track_key") or "")])
+    else:
+        feed = sort_feed(feed, sort)
+    feed = attach_manage_flags(feed)
+    counts = {"all": len(merged)}
+    for item in merged:
+        key = str(item.get("category") or "")
+        counts[key] = counts.get(key, 0) + 1
+    return render_template(
+        "browse.html",
+        deals=feed,
+        nav_cats=visible_nav_cats(counts),
+        all_nav_cats=NAV_CATS,
+        counts=counts,
+        cat="all",
+        cat_label="Saved",
+        q="",
+        sort=sort,
+        featured=None,
+        featured_list=[],
+        live_activity=[],
+        live_scoped=False,
+        saved_view=True,
     )
 
 

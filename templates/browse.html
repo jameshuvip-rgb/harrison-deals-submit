@@ -20,6 +20,9 @@
   .btn { appearance:none; border:0; border-radius:6px; background:var(--red); color:#fff; font-weight:700; padding:8px 12px; cursor:pointer; font-size:12px; text-decoration:none; display:inline-block; }
   .btn.ghost { background:#fff; color:#171717; border:1px solid #d4d4d4; }
   .btn.sm { padding:6px 10px; font-size:11px; }
+  .actions a.btn.ghost.on { background:#171717; color:#fff; border-color:#171717; }
+  .save-row { margin-top:8px; }
+  .save-deal.on, #mSave.on { background:#171717; color:#fff; border-color:#171717; }
   .layout { display:flex; align-items:stretch; min-height:calc(100vh - 88px); }
   aside { width:248px; flex:0 0 248px; background:#fff; border-right:1px solid var(--line); padding:14px 12px 28px; }
   .dept-label { font-size:11px; font-weight:700; color:var(--muted); letter-spacing:0.08em; padding:0 8px 10px; }
@@ -178,6 +181,9 @@ data-track="{{ (item.track_key or '')|e }}"
 data-favorites="{{ item.favorites or 0 }}"
 data-favorited="{{ '1' if item.favorited else '0' }}"
 {%- endmacro %}
+{% macro save_btn(item) -%}
+<button type="button" class="btn ghost sm save-deal{% if item.favorited %} on{% endif %}" data-save-deal data-save-compact data-track="{{ (item.track_key or '')|e }}" data-favorited="{{ '1' if item.favorited else '0' }}" data-favorites="{{ item.favorites or 0 }}" aria-pressed="{{ 'true' if item.favorited else 'false' }}">{% if item.favorited %}Saved{% else %}Save{% endif %}</button>
+{%- endmacro %}
   <header class="site-header">
     <div class="top">
       <a class="brand" href="{{ url_for('home') }}">
@@ -192,6 +198,7 @@ data-favorited="{{ '1' if item.favorited else '0' }}"
       <div class="actions">
         {% if session.email %}
           <a class="btn" href="{{ url_for('post_deal') }}">+ Post Deal</a>
+          <a class="btn ghost{% if saved_view %} on{% endif %}" href="{{ url_for('saved_deals') }}"{% if saved_view %} aria-current="page"{% endif %}>Saved</a>
           <a class="btn ghost" href="{{ url_for('my_deals') }}">My deals</a>
           <a class="btn ghost" href="{{ url_for('contact') }}">Contact</a>
           <a class="btn ghost" href="{{ url_for('logout') }}">Log out</a>
@@ -229,24 +236,35 @@ data-favorited="{{ '1' if item.favorited else '0' }}"
     <main>
       <div class="headline">
         <div>
-          <h1>Hot Deals</h1>
-          <p>
-            {% if cat == 'all' %}All departments{% else %}{{ nav_cats | selectattr('id', 'equalto', cat) | map(attribute='label') | first }}{% endif %}
-            {% if q %} · “{{ q }}”{% endif %}
-          </p>
+          {% if saved_view %}
+            <h1>Saved</h1>
+            <p>Deals you saved</p>
+          {% else %}
+            <h1>Hot Deals</h1>
+            <p>
+              {% if cat == 'all' %}All departments{% else %}{{ nav_cats | selectattr('id', 'equalto', cat) | map(attribute='label') | first }}{% endif %}
+              {% if q %} · “{{ q }}”{% endif %}
+            </p>
+          {% endif %}
         </div>
         <div class="sortbar">
           <span>Sort</span>
-          <a class="sort{% if sort == 'latest' %} on{% endif %}" href="{{ url_for('home', cat=none if cat == 'all' else cat, q=q or none, sort=none) }}">Latest</a>
-          <a class="sort{% if sort == 'off' %} on{% endif %}" href="{{ url_for('home', cat=none if cat == 'all' else cat, q=q or none, sort='off') }}">Biggest % off</a>
-          <a class="sort{% if sort == 'price' %} on{% endif %}" href="{{ url_for('home', cat=none if cat == 'all' else cat, q=q or none, sort='price') }}">Price ↑</a>
+          {% if saved_view %}
+            <a class="sort{% if sort == 'latest' %} on{% endif %}" href="{{ url_for('saved_deals') }}">Recently saved</a>
+            <a class="sort{% if sort == 'off' %} on{% endif %}" href="{{ url_for('saved_deals', sort='off') }}">Biggest % off</a>
+            <a class="sort{% if sort == 'price' %} on{% endif %}" href="{{ url_for('saved_deals', sort='price') }}">Price ↑</a>
+          {% else %}
+            <a class="sort{% if sort == 'latest' %} on{% endif %}" href="{{ url_for('home', cat=none if cat == 'all' else cat, q=q or none, sort=none) }}">Latest</a>
+            <a class="sort{% if sort == 'off' %} on{% endif %}" href="{{ url_for('home', cat=none if cat == 'all' else cat, q=q or none, sort='off') }}">Biggest % off</a>
+            <a class="sort{% if sort == 'price' %} on{% endif %}" href="{{ url_for('home', cat=none if cat == 'all' else cat, q=q or none, sort='price') }}">Price ↑</a>
+          {% endif %}
           {% if session.email %}
             <a class="btn sm" href="{{ url_for('post_deal') }}">+ Post</a>
           {% endif %}
         </div>
       </div>
 
-      {% if featured_list %}
+      {% if featured_list and not saved_view %}
         <div class="feat-row">
           {% for f in featured_list %}
             <div class="card-wrap">
@@ -276,6 +294,7 @@ data-favorited="{{ '1' if item.favorited else '0' }}"
                     <span class="was">${{ '%.2f'|format(f.was) }}</span>
                   </div>
                   <div class="asof{% if f.stale %} stale{% endif %}">{% if f.stale %}Price may be outdated{% elif f.asOf %}Price as of {{ f.asOf }}{% endif %}</div>
+                  <div class="save-row">{{ save_btn(f) }}</div>
                 </div>
               </div>
             </div>
@@ -285,7 +304,10 @@ data-favorited="{{ '1' if item.favorited else '0' }}"
 
       {% if not deals %}
         <div class="empty">
-          {% if q %}
+          {% if saved_view %}
+            <div style="font-size:15px;font-weight:700;color:#525252;margin-bottom:6px;">No saved deals yet</div>
+            <div>Tap Save on a deal and it will show up here.</div>
+          {% elif q %}
             <div style="font-size:15px;font-weight:700;color:#525252;margin-bottom:6px;">No matches</div>
             <div>Try another keyword.</div>
           {% else %}
@@ -321,13 +343,14 @@ data-favorited="{{ '1' if item.favorited else '0' }}"
                     <span class="was">${{ '%.2f'|format(d.was) }}</span>
                   </div>
                   <div class="asof{% if d.stale %} stale{% endif %}">{% if d.stale %}Price may be outdated{% elif d.asOf %}Price as of {{ d.asOf }}{% endif %}</div>
+                  <div class="save-row">{{ save_btn(d) }}</div>
                   {% if d.fit %}<div class="fit">{{ d.fit }}</div>{% endif %}
                 </div>
               </div>
             </div>
           {% endfor %}
         </div>
-        <div class="count">{{ deals|length }} deals · tap a card for details</div>
+        <div class="count">{% if saved_view %}{{ deals|length }} saved · tap a card for details{% else %}{{ deals|length }} deals · tap a card for details{% endif %}</div>
       {% endif %}
 
       <footer>
@@ -339,6 +362,7 @@ data-favorited="{{ '1' if item.favorited else '0' }}"
       </footer>
     </main>
 
+    {% if not saved_view %}
     <aside class="live-rail{% if live_scoped and not live_activity %} is-quiet{% endif %}" aria-label="Live updates">
       <div class="live-card">
         <div class="live-head">
@@ -370,6 +394,7 @@ data-favorited="{{ '1' if item.favorited else '0' }}"
         {% endif %}
       </div>
     </aside>
+    {% endif %}
   </div>
 
   <div class="modal-backdrop" id="dealModal" aria-hidden="true">
@@ -477,9 +502,10 @@ data-favorited="{{ '1' if item.favorited else '0' }}"
     });
   }
 
-  function saveLabel(on, count) {
-    var n = parseInt(count || '0', 10) || 0;
+  function saveLabel(on, count, compact) {
     var word = on ? 'Saved' : 'Save';
+    if (compact) return word;
+    var n = parseInt(count || '0', 10) || 0;
     return n ? (word + ' · ' + n) : word;
   }
   function applySaveState(track, favorited, count) {
@@ -490,7 +516,7 @@ data-favorited="{{ '1' if item.favorited else '0' }}"
       if (el.hasAttribute('data-save-deal')) {
         el.classList.toggle('on', !!favorited);
         el.setAttribute('aria-pressed', favorited ? 'true' : 'false');
-        el.textContent = saveLabel(!!favorited, count);
+        el.textContent = saveLabel(!!favorited, count, el.hasAttribute('data-save-compact'));
       }
     });
   }
@@ -576,6 +602,7 @@ data-favorited="{{ '1' if item.favorited else '0' }}"
       openDeal(el);
     });
     el.addEventListener('keydown', function (e) {
+      if (e.target.closest('[data-menu]') || e.target.closest('[data-save-deal]')) return;
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         openDeal(el);
