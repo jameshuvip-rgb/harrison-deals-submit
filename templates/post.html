@@ -7,7 +7,7 @@
   <form class="card" method="post" enctype="multipart/form-data">
     {% set cover_required = true %}
     {% set current_cover = '' %}
-    {% set cover_hint = 'Upload a product photo from your computer (JPG, PNG, WEBP, or GIF, max 8MB).' %}
+    {% set cover_hint = 'One photo only (JPG, PNG, WEBP, or GIF, max 8MB). Choosing another file replaces the one already picked.' %}
     {% set cover_max_bytes = 8388608 %}
     {% include "_cover_field.html" %}
     <label>Product title *
