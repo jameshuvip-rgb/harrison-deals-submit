@@ -45,9 +45,15 @@
   .sortbar span { font-size:11px; color:var(--muted); margin-right:2px; }
   .sort { appearance:none; border:1px solid #d4d4d4; background:#fff; color:#404040; border-radius:999px; padding:6px 10px; font:inherit; font-size:12px; font-weight:600; text-decoration:none; }
   .sort.on { background:#171717; color:#fff; border-color:#171717; }
-  .feat-row { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; margin-bottom:16px; }
+  .feat-row { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px; margin-bottom:18px; }
+  .hot-stat { font-size:11px; color:var(--muted); font-weight:600; margin-bottom:8px; }
+  .save-btn { appearance:none; border:1px solid #d4d4d4; background:#fff; color:#171717; border-radius:999px; padding:4px 10px; font:inherit; font-size:12px; font-weight:700; cursor:pointer; line-height:1.2; }
+  .save-btn.on, #mSave.on { background:#171717; color:#fff; border-color:#171717; }
+  .save-btn:hover { border-color:#171717; }
+  .pill.hot-pill { background:#171717; }
+  .feat-card .save-row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; }
   .feat-card { position:relative; display:flex; flex-direction:column; background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; text-decoration:none; color:inherit; cursor:pointer; }
-  .feat-card .thumb { width:100%; height:190px; background:#fafafa; border-bottom:1px solid #ececec; display:flex; align-items:center; justify-content:center; }
+  .feat-card .thumb { width:100%; height:230px; background:#fafafa; border-bottom:1px solid #ececec; display:flex; align-items:center; justify-content:center; }
   .feat-card .thumb img { width:100%; height:100%; object-fit:contain; display:block; padding:4px; background:#fff; }
   .feat-card .copy { padding:10px 12px 12px; }
   .feat-card h2 { font-size:16px; font-weight:700; line-height:1.3; margin:0 0 6px; min-height:42px; }
@@ -69,6 +75,7 @@
   .asof { font-size:10px; color:var(--muted); margin-top:4px; }
   .asof.stale { font-style:italic; color:#a3a3a3; }
   .fit { font-size:11px; color:var(--muted); margin-top:4px; }
+  .card-body .save-row { margin-top:8px; }
   .menu-wrap { position:absolute; top:6px; right:6px; z-index:6; }
   .menu-btn { width:28px; height:28px; border-radius:999px; border:1px solid #d4d4d4; background:rgba(255,255,255,.96); color:#404040; font-size:18px; line-height:1; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; box-shadow:0 1px 2px rgba(0,0,0,.06); }
   .menu-btn:hover { background:#fff; }
@@ -174,6 +181,12 @@ data-amazon="{{ item.amazon_url|e }}"
 data-promo-code="{{ (item.promo_code or '')|e }}"
 data-code-note="{{ (item.code_note or '')|e }}"
 data-id="{{ item.id|e }}"
+data-track="{{ (item.track_key or '')|e }}"
+data-favorites="{{ item.favorites or 0 }}"
+data-favorited="{{ '1' if item.favorited else '0' }}"
+{%- endmacro %}
+{% macro save_btn(item) -%}
+<button type="button" class="save-btn{% if item.favorited %} on{% endif %}" data-save-deal data-track="{{ (item.track_key or '')|e }}" data-favorited="{{ '1' if item.favorited else '0' }}" data-favorites="{{ item.favorites or 0 }}" aria-pressed="{{ 'true' if item.favorited else 'false' }}">{% if item.favorited %}Saved{% else %}Save{% endif %}{% if item.favorites %} · {{ item.favorites }}{% endif %}</button>
 {%- endmacro %}
   <header class="site-header">
     <div class="top">
@@ -229,7 +242,7 @@ data-id="{{ item.id|e }}"
           <h1>Hot Deals</h1>
           <p>
             {% if cat == 'all' %}All departments{% else %}{{ nav_cats | selectattr('id', 'equalto', cat) | map(attribute='label') | first }}{% endif %}
-            {% if q %} · “{{ q }}”{% endif %}
+            {% if q %} · “{{ q }}”{% elif featured_list %} · Most viewed in 30 minutes, then the biggest discount{% endif %}
           </p>
         </div>
         <div class="sortbar">
@@ -263,7 +276,7 @@ data-id="{{ item.id|e }}"
                 <div class="thumb"><img src="{{ f.image }}" alt="{{ f.title }}" loading="lazy"/></div>
                 <div class="copy">
                   <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">
-                    <span class="pill">Today's pick</span>
+                    {% if f.hot_label %}<span class="pill hot-pill">{{ f.hot_label }}</span>{% endif %}
                     {% if f.badge %}<span class="pill">{{ f.badge }}</span>{% endif %}
                   </div>
                   <h2>{{ f.title }}</h2>
@@ -273,6 +286,14 @@ data-id="{{ item.id|e }}"
                     <span class="was">${{ '%.2f'|format(f.was) }}</span>
                   </div>
                   <div class="asof{% if f.stale %} stale{% endif %}">{% if f.stale %}Price may be outdated{% elif f.asOf %}Price as of {{ f.asOf }}{% endif %}</div>
+                  {% if f.views_30m or f.favorites %}
+                  <div class="hot-stat">
+                    {% if f.views_30m %}{{ f.views_30m }} view{% if f.views_30m != 1 %}s{% endif %} in 30 min{% endif %}
+                    {% if f.views_30m and f.favorites %} · {% endif %}
+                    {% if f.favorites %}{{ f.favorites }} saved{% endif %}
+                  </div>
+                  {% endif %}
+                  <div class="save-row">{{ save_btn(f) }}</div>
                 </div>
               </div>
             </div>
@@ -319,6 +340,7 @@ data-id="{{ item.id|e }}"
                   </div>
                   <div class="asof{% if d.stale %} stale{% endif %}">{% if d.stale %}Price may be outdated{% elif d.asOf %}Price as of {{ d.asOf }}{% endif %}</div>
                   {% if d.fit %}<div class="fit">{{ d.fit }}</div>{% endif %}
+                  <div class="save-row">{{ save_btn(d) }}</div>
                 </div>
               </div>
             </div>
@@ -394,6 +416,7 @@ data-id="{{ item.id|e }}"
         <div class="detail" id="mDetail"></div>
         <p class="price-confirm" id="mConfirm" hidden>Confirm price on Amazon.ca</p>
         <div class="modal-actions">
+          <button type="button" class="btn ghost" id="mSave" data-save-deal data-track="" data-favorited="0" data-favorites="0" aria-pressed="false">Save</button>
           <button type="button" class="btn ghost" id="mCopy">Copy share link</button>
           <a class="btn" id="mAmazon" href="#" target="_blank" rel="noopener noreferrer">Get on Amazon →</a>
         </div>
@@ -403,6 +426,7 @@ data-id="{{ item.id|e }}"
 
 <script>
 (function () {
+  var LOGGED_IN = {{ 'true' if session.email else 'false' }};
   function closeMenus(except) {
     document.querySelectorAll('[data-menu].open').forEach(function (el) {
       if (el !== except) el.classList.remove('open');
@@ -438,11 +462,13 @@ data-id="{{ item.id|e }}"
   var mBadges = document.getElementById('mBadges');
   var mAmazon = document.getElementById('mAmazon');
   var mCopy = document.getElementById('mCopy');
+  var mSave = document.getElementById('mSave');
   var mPromo = document.getElementById('mPromo');
   var mPromoRow = document.getElementById('mPromoRow');
   var mPromoNote = document.getElementById('mPromoNote');
   var mConfirm = document.getElementById('mConfirm');
   var currentId = '';
+  var currentTrack = '';
   var currentCode = '';
   var REAL_CODE = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,31})$/;
 
@@ -470,8 +496,34 @@ data-id="{{ item.id|e }}"
     });
   }
 
+  function saveLabel(on, count) {
+    var n = parseInt(count || '0', 10) || 0;
+    var word = on ? 'Saved' : 'Save';
+    return n ? (word + ' · ' + n) : word;
+  }
+  function applySaveState(track, favorited, count) {
+    document.querySelectorAll('[data-track]').forEach(function (el) {
+      if ((el.getAttribute('data-track') || '') !== track) return;
+      el.setAttribute('data-favorited', favorited ? '1' : '0');
+      el.setAttribute('data-favorites', String(count));
+      if (el.hasAttribute('data-save-deal')) {
+        el.classList.toggle('on', !!favorited);
+        el.setAttribute('aria-pressed', favorited ? 'true' : 'false');
+        el.textContent = saveLabel(!!favorited, count);
+      }
+    });
+  }
+  function loginForSave() {
+    var next = location.pathname + location.search;
+    window.location = '/login?next=' + encodeURIComponent(next);
+  }
   function openDeal(el) {
     currentId = el.getAttribute('data-id') || '';
+    currentTrack = el.getAttribute('data-track') || '';
+    if (mSave) {
+      mSave.setAttribute('data-track', currentTrack);
+      applySaveState(currentTrack, el.getAttribute('data-favorited') === '1', el.getAttribute('data-favorites') || '0');
+    }
     mTitle.textContent = el.getAttribute('data-title') || '';
     mLine.textContent = el.getAttribute('data-line') || '';
     mDetail.textContent = el.getAttribute('data-detail') || el.getAttribute('data-fit') || '';
@@ -501,6 +553,14 @@ data-id="{{ item.id|e }}"
     setPromoCode((el.getAttribute('data-promo-code') || '').trim(), note);
     modal.classList.add('open');
     modal.setAttribute('aria-hidden', 'false');
+    if (currentTrack) {
+      fetch('/api/deals/view', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ track_key: currentTrack }),
+        keepalive: true
+      }).catch(function () {});
+    }
   }
   function setPromoCode(code, note) {
     currentCode = '';
@@ -531,7 +591,7 @@ data-id="{{ item.id|e }}"
   }
   document.querySelectorAll('[data-open-deal]').forEach(function (el) {
     el.addEventListener('click', function (e) {
-      if (e.target.closest('[data-menu]')) return;
+      if (e.target.closest('[data-menu]') || e.target.closest('[data-save-deal]')) return;
       openDeal(el);
     });
     el.addEventListener('keydown', function (e) {
@@ -540,6 +600,32 @@ data-id="{{ item.id|e }}"
         openDeal(el);
       }
     });
+  });
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-save-deal]');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var track = btn.getAttribute('data-track') || '';
+    if (!track) return;
+    if (!LOGGED_IN) {
+      loginForSave();
+      return;
+    }
+    fetch('/api/deals/favorite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ track_key: track })
+    }).then(function (response) {
+      if (response.status === 401) {
+        loginForSave();
+        return null;
+      }
+      return response.json();
+    }).then(function (body) {
+      if (!body || !body.ok) return;
+      applySaveState(track, !!body.favorited, body.favorites || 0);
+    }).catch(function () {});
   });
   document.getElementById('dealModalClose').addEventListener('click', closeDeal);
   modal.addEventListener('click', function (e) {
