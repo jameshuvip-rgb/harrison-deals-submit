@@ -5,10 +5,11 @@
   <p class="sub">Share a Canada Amazon discount. It goes to review (Pending) under your email.</p>
   {% if error %}<div class="msg err" role="alert">{{ error }}</div>{% endif %}
   <form class="card" method="post" enctype="multipart/form-data">
-    <label>Cover image *
-      <span class="hint">Upload a product photo from your computer (JPG, PNG, WEBP, or GIF, max 8MB).</span>
-      <input name="cover" type="file" accept="image/*" required />
-    </label>
+    {% set cover_required = true %}
+    {% set current_cover = '' %}
+    {% set cover_hint = 'Upload a product photo from your computer (JPG, PNG, WEBP, or GIF, max 8MB).' %}
+    {% set cover_max_bytes = 8388608 %}
+    {% include "_cover_field.html" %}
     <label>Product title *
       <input name="title" required maxlength="200" placeholder="Cabin air filter for Honda Civic…" />
     </label>

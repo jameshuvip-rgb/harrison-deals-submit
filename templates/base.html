@@ -23,7 +23,11 @@
   label { display:grid; gap:6px; font-size:0.82rem; font-weight:600; color:#344054; }
   input, select, textarea { font:inherit; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); }
   input[type="file"] { padding:8px 10px; background:#f8fafc; }
-  .cover-preview { width:120px; height:120px; object-fit:cover; border-radius:10px; border:1px solid var(--line); background:#f2f4f7; display:block; }
+  .cover-field { display:grid; gap:10px; }
+  .cover-label { font-weight:600; color:#344054; margin-bottom:6px; }
+  .cover-preview { width:160px; height:160px; object-fit:cover; border-radius:10px; border:1px solid var(--line); background:#f2f4f7; display:block; }
+  .cover-clear { padding:8px 14px; font-size:0.85rem; }
+  [hidden] { display:none !important; }
   textarea { min-height:84px; resize:vertical; }
   .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   @media (max-width:520px){ .row { grid-template-columns:1fr; } }
@@ -73,5 +77,6 @@
     {% block body %}{% endblock %}
     <p class="foot">Harrison Deals · Canada · you can only edit deals you posted</p>
   </div>
+  <script src="{{ url_for('static', filename='cover-field.js') }}"></script>
 </body>
 </html>

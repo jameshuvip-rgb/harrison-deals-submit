@@ -1,0 +1,21 @@
+<div class="cover-field" data-cover-field data-max-bytes="{{ cover_max_bytes }}">
+  {% if current_cover %}
+  <div>
+    <div class="hint cover-label">Current cover</div>
+    <img class="cover-preview" src="{{ current_cover }}" alt="Current cover" />
+  </div>
+  {% endif %}
+  <div data-cover-new hidden>
+    <div class="hint cover-label">New cover</div>
+    <img class="cover-preview" data-cover-preview alt="Selected cover preview" />
+  </div>
+  <p class="hint" data-cover-picked hidden></p>
+  <p class="msg err" data-cover-error hidden role="alert"></p>
+  <label>Cover image{% if cover_required %} *{% endif %}
+    <span class="hint">{{ cover_hint }}</span>
+    <input name="cover" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" data-cover-input {% if cover_required %}required{% endif %} />
+  </label>
+  <div>
+    <button type="button" class="secondary cover-clear" data-cover-clear hidden>Clear 清除</button>
+  </div>
+</div>

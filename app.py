@@ -51,6 +51,11 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PROMO_CODE_RE = re.compile(r"^[A-Z0-9](?:[A-Z0-9_-]{0,31})$")
 CODE_NOTE_MAX = 120
 COVER_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+# 8 MiB image cap. The request cap is a little higher so the multipart
+# form around an 8MB file is not rejected before we can save it or show
+# an on-page error.
+COVER_MAX_BYTES = 8 * 1024 * 1024
+REQUEST_MAX_BYTES = COVER_MAX_BYTES + 512 * 1024
 
 for d in (DATA, INBOX, UPLOADS):
     d.mkdir(parents=True, exist_ok=True)
@@ -459,7 +464,7 @@ def _load_secret_key() -> str:
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = _load_secret_key()
-app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = REQUEST_MAX_BYTES
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = PUBLIC_BASE.startswith("https://")
@@ -659,32 +664,52 @@ def deal_cover_src(deal) -> str:
     return ""
 
 
-def _sniff_image_ext(blob: bytes) -> str:
-    if blob.startswith(b"\xff\xd8\xff"):
-        return ".jpg"
-    if blob.startswith(b"\x89PNG\r\n\x1a\n"):
-        return ".png"
-    if blob.startswith((b"GIF87a", b"GIF89a")):
-        return ".gif"
-    if len(blob) >= 12 and blob.startswith(b"RIFF") and blob[8:12] == b"WEBP":
-        return ".webp"
-    raise ValueError("Cover image must be a JPG, PNG, WEBP, or GIF")
+def _cover_too_large() -> ValueError:
+    return ValueError("Cover image is too large (max 8MB). Choose a smaller JPG, PNG, WEBP, or GIF.")
+
+
+def _classify_cover(blob: bytes) -> tuple[bytes, str]:
+    """Return stored bytes and extension. Accepts JPEG/PNG/GIF/WEBP, including a short junk prefix."""
+    data = blob
+    if data.startswith(b"\xef\xbb\xbf"):
+        data = data[3:]
+    data = data.lstrip(b"\t\r\n ")
+    if data.startswith(b"8BPS"):
+        raise ValueError(
+            "This is a Photoshop PSD file. Export the artboard as a JPG or PNG under 8MB and upload that file."
+        )
+    if data.startswith(b"\xff\xd8\xff"):
+        return data, ".jpg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return data, ".png"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return data, ".gif"
+    if len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return data, ".webp"
+    # Some exports prepend a short header before a normal JPEG.
+    soi = data.find(b"\xff\xd8\xff", 0, 512)
+    if soi > 0:
+        return data[soi:], ".jpg"
+    raise ValueError(
+        "That file is not a JPG, PNG, WEBP, or GIF. Export it as a standard JPG or PNG under 8MB and try again."
+    )
 
 
 def read_cover_upload():
-    """Return (bytes, ext) for the cover file field, or None when no file was chosen."""
+    """Return (bytes, ext) for the cover file field, or None when no file was chosen.
+
+    The original filename is ignored. Files are renamed on save, so spaces and
+    non-ASCII names (such as a Photoshop "画板 1.jpg" export) are fine.
+    """
     f = request.files.get("cover")
     if not f or not (f.filename or "").strip():
         return None
-    ctype = (f.mimetype or "").split(";")[0].strip().lower()
-    if ctype and ctype not in {"application/octet-stream", "binary/octet-stream"} and not ctype.startswith("image/"):
-        raise ValueError("Cover image must be an image file")
-    blob = f.read()
+    blob = f.read(COVER_MAX_BYTES + 1)
     if not blob:
-        raise ValueError("Cover image file is empty")
-    if len(blob) > 8_000_000:
-        raise ValueError("Cover image too large (max 8MB)")
-    return blob, _sniff_image_ext(blob)
+        raise ValueError("Cover image file is empty. Choose a JPG, PNG, WEBP, or GIF.")
+    if len(blob) > COVER_MAX_BYTES:
+        raise _cover_too_large()
+    return _classify_cover(blob)
 
 
 def save_cover(user_id: int):
@@ -1326,6 +1351,17 @@ def api_submit():
     db.execute("UPDATE deals SET notion_hint = ? WHERE id = ?", (event_id, deal_id))
     db.commit()
     return jsonify(ok=True, id=event_id, local_id=deal_id)
+
+
+@app.errorhandler(413)
+def request_too_large(_e):
+    message = (
+        "That upload is too large. Cover images must be a JPG, PNG, WEBP, or GIF under 8MB. "
+        "Go back, choose a smaller file, and submit again."
+    )
+    if wants_json():
+        return jsonify(error=message), 413
+    return render_template("error.html", code="Upload too large", message=message), 413
 
 
 @app.errorhandler(403)
