@@ -45,7 +45,7 @@
   .sortbar span { font-size:11px; color:var(--muted); margin-right:2px; }
   .sort { appearance:none; border:1px solid #d4d4d4; background:#fff; color:#404040; border-radius:999px; padding:6px 10px; font:inherit; font-size:12px; font-weight:600; text-decoration:none; }
   .sort.on { background:#171717; color:#fff; border-color:#171717; }
-  .feat-row { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px; margin-bottom:18px; }
+  .feat-row { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; margin-bottom:16px; }
   .hot-stat { font-size:11px; color:var(--muted); font-weight:600; margin-bottom:8px; }
   .save-btn { appearance:none; border:1px solid #d4d4d4; background:#fff; color:#171717; border-radius:999px; padding:4px 10px; font:inherit; font-size:12px; font-weight:700; cursor:pointer; line-height:1.2; }
   .save-btn.on, #mSave.on { background:#171717; color:#fff; border-color:#171717; }
@@ -53,12 +53,12 @@
   .pill.hot-pill { background:#171717; }
   .feat-card .save-row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; }
   .feat-card { position:relative; display:flex; flex-direction:column; background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; text-decoration:none; color:inherit; cursor:pointer; }
-  .feat-card .thumb { width:100%; height:230px; background:#fafafa; border-bottom:1px solid #ececec; display:flex; align-items:center; justify-content:center; }
+  .feat-card .thumb { width:100%; height:148px; background:#fafafa; border-bottom:1px solid #ececec; display:flex; align-items:center; justify-content:center; }
   .feat-card .thumb img { width:100%; height:100%; object-fit:contain; display:block; padding:4px; background:#fff; }
-  .feat-card .copy { padding:10px 12px 12px; }
-  .feat-card h2 { font-size:16px; font-weight:700; line-height:1.3; margin:0 0 6px; min-height:42px; }
-  .feat-card .line { font-size:12px; color:#525252; margin-bottom:8px; }
-  .feat-card .now { font-size:20px; font-weight:800; }
+  .feat-card .copy { padding:8px 10px 10px; }
+  .feat-card h2 { font-size:14px; font-weight:700; line-height:1.3; margin:0 0 6px; min-height:0; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .feat-card .line { font-size:12px; color:#525252; margin-bottom:8px; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
+  .feat-card .now { font-size:18px; font-weight:800; }
   .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:14px; }
   .card-wrap { position:relative; }
   .card { display:flex; flex-direction:column; background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden; text-decoration:none; color:inherit; cursor:pointer; height:100%; }
@@ -242,7 +242,7 @@ data-favorited="{{ '1' if item.favorited else '0' }}"
           <h1>Hot Deals</h1>
           <p>
             {% if cat == 'all' %}All departments{% else %}{{ nav_cats | selectattr('id', 'equalto', cat) | map(attribute='label') | first }}{% endif %}
-            {% if q %} · “{{ q }}”{% elif featured_list %} · Most viewed in 30 minutes, then the biggest discount{% endif %}
+            {% if q %} · “{{ q }}”{% elif featured_list %} · Most viewed in 30 minutes, biggest discount, then most saved{% endif %}
           </p>
         </div>
         <div class="sortbar">

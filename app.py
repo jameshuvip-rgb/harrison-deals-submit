@@ -70,7 +70,7 @@ COVER_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 COVER_MAX_BYTES = 8 * 1024 * 1024
 REQUEST_MAX_BYTES = COVER_MAX_BYTES + 512 * 1024
 # Hot Deals: slot 1 is views in this window, slot 2 is biggest % off.
-HOT_LIMIT = 2
+HOT_LIMIT = 3
 VIEW_WINDOW_SEC = 30 * 60
 VIEW_DEBOUNCE_SEC = 5 * 60
 VIEW_KEEP_SEC = 24 * 60 * 60
@@ -420,13 +420,14 @@ def _tag_hot(deal: dict, label: str) -> dict:
 
 
 def pick_hot_deals(feed: list[dict], limit: int = HOT_LIMIT) -> list[dict]:
-    """Exactly two Hot Deals cards when the pool is large enough.
+    """Up to three Hot Deals cards, each with a real cover image.
 
     Slot 1 is the most-viewed deal in the last 30 minutes.
-    Slot 2 is the biggest % off among the deals that remain.
-    Ties, and an empty slot, break on favorites, then updated/posted, then a real cover.
-    With no recent views, fall back to biggest % off then latest, still at most two,
-    and still only deals that have a real cover image.
+    Slot 2 is the biggest % off.
+    Slot 3 is the most saved.
+    If a slot's leader was already used, that slot takes the next-best on the same axis.
+    Ties break on favorites, then updated/posted, then a real cover.
+    With no views and no saves, fill by biggest % off then latest, still at most three.
     """
     pool = [d for d in feed if has_real_image(d)]
     if not pool:
@@ -441,12 +442,25 @@ def pick_hot_deals(feed: list[dict], limit: int = HOT_LIMIT) -> list[dict]:
     def off(deal: dict) -> int:
         return int(deal.get("off") or 0)
 
+    def fav(deal: dict) -> int:
+        return int(deal.get("favorites") or 0)
+
     def identity(deal: dict) -> str:
         return str(deal.get("track_key") or deal.get("id") or "")
 
-    if not any(views(d) > 0 for d in pool):
-        ranked = sorted(pool, key=lambda d: (off(d),) + _hot_tie_key(d), reverse=True)
-        chosen = ranked[:limit]
+    def ranked_fallback(taken: set[str]) -> list[dict]:
+        rest = [d for d in pool if identity(d) not in taken]
+        return sorted(rest, key=lambda d: (off(d),) + _hot_tie_key(d), reverse=True)
+
+    def best_on(score, taken: set[str]):
+        cands = [d for d in pool if identity(d) not in taken and score(d) > 0]
+        if not cands:
+            return None
+        best = max(score(d) for d in cands)
+        return _hot_winner([d for d in cands if score(d) == best])
+
+    if not any(views(d) > 0 for d in pool) and not any(fav(d) > 0 for d in pool):
+        chosen = ranked_fallback(set())[:limit]
         top_off = off(chosen[0]) if chosen else 0
         out = []
         for deal in chosen:
@@ -454,21 +468,33 @@ def pick_hot_deals(feed: list[dict], limit: int = HOT_LIMIT) -> list[dict]:
             out.append(_tag_hot(deal, label))
         return out
 
-    leaders = [d for d in pool if views(d) > 0 and views(d) == max(views(x) for x in pool)]
-    slot1 = _hot_winner(leaders)
-    chosen_id = identity(slot1)
-    result = [_tag_hot(slot1, "Most viewed")]
-    if limit < 2:
-        return result
-    remaining = [d for d in pool if identity(d) != chosen_id]
-    if not remaining:
-        return result
-    best_off = max(off(d) for d in remaining)
-    if best_off > 0:
-        slot2 = _hot_winner([d for d in remaining if off(d) == best_off])
-        result.append(_tag_hot(slot2, "Biggest % off"))
-    else:
-        result.append(_tag_hot(_hot_winner(remaining), "Latest"))
+    taken: set[str] = set()
+    result: list[dict] = []
+    for score, label in (
+        (views, "Most viewed"),
+        (off, "Biggest % off"),
+        (fav, "Most saved"),
+    ):
+        if len(result) >= limit:
+            break
+        winner = best_on(score, taken)
+        if winner is None:
+            continue
+        taken.add(identity(winner))
+        result.append(_tag_hot(winner, label))
+
+    if len(result) < limit:
+        extras = ranked_fallback(taken)
+        top_off = off(extras[0]) if extras else 0
+        discount_taken = any(item.get("hot_label") == "Biggest % off" for item in result)
+        for deal in extras:
+            if len(result) >= limit:
+                break
+            if not discount_taken and off(deal) > 0 and off(deal) == top_off:
+                label = "Biggest % off"
+            else:
+                label = "Latest"
+            result.append(_tag_hot(deal, label))
     return result
 
 

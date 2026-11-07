@@ -61,7 +61,7 @@ def feat_ids(html: str) -> list[str]:
 
 
 class HotRankTests(unittest.TestCase):
-    def test_fallback_is_biggest_discount_then_latest_max_two(self):
+    def test_fallback_is_biggest_discount_then_latest_max_three(self):
         deals = [
             card("low", 10, 100),
             card("tie-old", 40, 1),
@@ -69,9 +69,24 @@ class HotRankTests(unittest.TestCase):
             card("no-image", 90, 9, image=""),
         ]
         picked = hd.pick_hot_deals(deals)
-        self.assertEqual([d["id"] for d in picked], ["tie-new", "tie-old"])
+        self.assertEqual([d["id"] for d in picked], ["tie-new", "tie-old", "low"])
         self.assertEqual(picked[0]["hot_label"], "Biggest % off")
         self.assertEqual(picked[1]["hot_label"], "Biggest % off")
+        self.assertEqual(picked[2]["hot_label"], "Latest")
+
+    def test_three_slots_skip_a_winner_already_used(self):
+        deals = [
+            card("viewer", 10, 1, views=8, fav=9),
+            card("deal", 50, 2, views=1, fav=1),
+            card("saver", 20, 3, fav=4),
+            card("other", 15, 4, fav=2),
+        ]
+        picked = hd.pick_hot_deals(deals)
+        self.assertEqual([d["id"] for d in picked], ["viewer", "deal", "saver"])
+        self.assertEqual(
+            [d["hot_label"] for d in picked],
+            ["Most viewed", "Biggest % off", "Most saved"],
+        )
 
     def test_views_slot_then_discount_among_the_rest(self):
         deals = [
@@ -80,8 +95,11 @@ class HotRankTests(unittest.TestCase):
             card("also", 40, 9),
         ]
         picked = hd.pick_hot_deals(deals)
-        self.assertEqual([d["id"] for d in picked], ["viewed", "best-off"])
-        self.assertEqual([d["hot_label"] for d in picked], ["Most viewed", "Biggest % off"])
+        self.assertEqual([d["id"] for d in picked], ["viewed", "best-off", "also"])
+        self.assertEqual(
+            [d["hot_label"] for d in picked],
+            ["Most viewed", "Biggest % off", "Latest"],
+        )
 
     def test_view_tie_breaks_on_favorites_then_updated(self):
         deals = [
@@ -109,16 +127,19 @@ class HotRankTests(unittest.TestCase):
             card("fresh", 0, 9, fav=3),
         ]
         picked = hd.pick_hot_deals(deals)
-        self.assertEqual([d["id"] for d in picked], ["hot", "fresh"])
-        self.assertEqual(picked[1]["hot_label"], "Latest")
+        self.assertEqual([d["id"] for d in picked], ["hot", "fresh", "saved"])
+        self.assertEqual(picked[0]["hot_label"], "Most viewed")
+        self.assertEqual(picked[1]["hot_label"], "Most saved")
+        self.assertEqual(picked[2]["hot_label"], "Latest")
 
     def test_single_deal_returns_one(self):
         picked = hd.pick_hot_deals([card("only", 5, 1)])
         self.assertEqual(len(picked), 1)
 
-    def test_cap_is_two_even_if_caller_asks_for_three(self):
+    def test_cap_is_three_even_if_caller_asks_for_more(self):
         deals = [card(str(i), i, i) for i in range(5)]
-        self.assertEqual(len(hd.pick_hot_deals(deals, 3)), 2)
+        picked = hd.pick_hot_deals(deals, 5)
+        self.assertEqual([d["id"] for d in picked], ["4", "3", "2"])
 
 
 class AmazonParseTests(unittest.TestCase):
@@ -217,11 +238,11 @@ class AppFlowTests(unittest.TestCase):
 
     def test_home_fallback_shows_two_imaged_discount_leaders(self):
         html = self._html("/")
-        self.assertEqual(html.count('class="feat-card"'), 2)
-        self.assertIn("grid-template-columns:repeat(2, minmax(0, 1fr))", html)
+        self.assertEqual(html.count('class="feat-card"'), 3)
+        self.assertIn("grid-template-columns:repeat(3, minmax(0, 1fr))", html)
         self.assertNotIn("Today's pick", html)
-        self.assertEqual(feat_ids(html), ["B0HC3N5BHW", "B0HF7Q25KL"])
-        self.assertIn("Most viewed in 30 minutes, then the biggest discount", html)
+        self.assertEqual(feat_ids(html), ["B0HC3N5BHW", "B0HF7Q25KL", "B0HF81MTRH"])
+        self.assertIn("Most viewed in 30 minutes, biggest discount, then most saved", html)
         self.assertIn(">Save<", html)
 
     def test_search_hides_hot_deals_and_category_stays_in_pool(self):
@@ -231,7 +252,7 @@ class AppFlowTests(unittest.TestCase):
         self.assertIn("Tesla", search)
 
         sports = self._html("/?cat=sports")
-        self.assertEqual(feat_ids(sports), ["B0HF7Q25KL", "B0HF81MTRH"])
+        self.assertEqual(feat_ids(sports), ["B0HF7Q25KL", "B0HF81MTRH", "B0HF81MWNT"])
 
         home = self._html("/?cat=home")
         self.assertEqual(feat_ids(home), ["B0HC3N5BHW"])
@@ -246,8 +267,7 @@ class AppFlowTests(unittest.TestCase):
         self.assertFalse(second.get_json()["counted"])
         html = self._html("/")
         ids = feat_ids(html)
-        self.assertEqual(ids[0], "B0HHJ93L1P")
-        self.assertEqual(ids[1], "B0HC3N5BHW")
+        self.assertEqual(ids, ["B0HHJ93L1P", "B0HC3N5BHW", "B0HF7Q25KL"])
         self.assertIn("Most viewed", html)
         self.assertIn("1 view in 30 min", html)
 
@@ -277,7 +297,7 @@ class AppFlowTests(unittest.TestCase):
         db.commit()
         db.close()
         html = self._html("/")
-        self.assertEqual(feat_ids(html), ["B0HC3N5BHW", "B0HF7Q25KL"])
+        self.assertEqual(feat_ids(html), ["B0HC3N5BHW", "B0HF7Q25KL", "B0HF81MTRH"])
         missing = self.client.post("/api/deals/view", json={"track_key": "seed:NOTADEAL"})
         self.assertEqual(missing.status_code, 404)
         blocked = self.client.post(
