@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Contact — Harrison Deals{% endblock %}
+{% block body %}
+  <h1>Contact</h1>
+  <p class="sub">Send a note to Harrison Deals. No account is required. We reply to the email you enter.</p>
+  {% if error %}<div class="msg err" role="alert">{{ error }}</div>{% endif %}
+  <form class="card" method="post" action="{{ url_for('contact') }}">
+    <label>Title
+      <input name="title" required maxlength="{{ title_max }}" value="{{ title or '' }}" placeholder="Question about a deal" />
+    </label>
+    <label>Message
+      <textarea name="message" required maxlength="{{ message_max }}" placeholder="Tell us what you need">{{ message or '' }}</textarea>
+    </label>
+    <label>Email
+      <input name="email" type="email" required maxlength="{{ email_max }}" autocomplete="email" value="{{ email or '' }}" placeholder="you@example.com" />
+    </label>
+    <button type="submit">Send message</button>
+  </form>
+{% endblock %}

@@ -190,9 +190,11 @@ data-id="{{ item.id|e }}"
         {% if session.email %}
           <a class="btn" href="{{ url_for('post_deal') }}">+ Post Deal</a>
           <a class="btn ghost" href="{{ url_for('my_deals') }}">My deals</a>
+          <a class="btn ghost" href="{{ url_for('contact') }}">Contact</a>
           <a class="btn ghost" href="{{ url_for('logout') }}">Log out</a>
         {% else %}
           <a class="btn ghost" href="{{ url_for('post_deal') }}">Post Deal</a>
+          <a class="btn ghost" href="{{ url_for('contact') }}">Contact</a>
           <a class="btn ghost" href="{{ url_for('login') }}">Log in</a>
         {% endif %}
       </div>
