@@ -1,13 +1,21 @@
 <div class="cover-field" data-cover-field data-max-bytes="{{ cover_max_bytes }}">
+  <input type="hidden" name="remove_cover" value="" data-remove-cover />
   {% if current_cover %}
-  <div>
+  <div data-cover-current>
     <div class="hint cover-label">Current cover</div>
-    <img class="cover-preview" src="{{ current_cover }}" alt="Current cover" />
+    <div class="cover-shot">
+      <img class="cover-preview" src="{{ current_cover }}" alt="Current cover" />
+      <button type="button" class="cover-x" data-clear-current aria-label="清除当前封面">× 清除</button>
+    </div>
+    <p class="hint" data-cover-removed hidden>Current cover will be removed when you save. Upload a new photo if you want a replacement.</p>
   </div>
   {% endif %}
   <div data-cover-new hidden>
     <div class="hint cover-label">New cover</div>
-    <img class="cover-preview" data-cover-preview alt="Selected cover preview" />
+    <div class="cover-shot">
+      <img class="cover-preview" data-cover-preview alt="Selected cover preview" />
+      <button type="button" class="cover-x" data-clear-new aria-label="清除所选图片">× 清除</button>
+    </div>
   </div>
   <p class="hint" data-cover-picked hidden></p>
   <p class="msg err" data-cover-error hidden role="alert"></p>
@@ -15,7 +23,4 @@
     <span class="hint">{{ cover_hint }}</span>
     <input name="cover" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" data-cover-input {% if cover_required %}required{% endif %} />
   </label>
-  <div>
-    <button type="button" class="secondary cover-clear" data-cover-clear hidden>Clear 清除</button>
-  </div>
 </div>
