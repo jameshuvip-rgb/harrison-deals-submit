@@ -7,7 +7,7 @@
   <form class="card" method="post" enctype="multipart/form-data">
     {% set cover_required = false %}
     {% set current_cover = deal.cover_url %}
-    {% set cover_hint = 'Upload a new photo to replace the current one. Leave this empty to keep it.' %}
+    {% set cover_hint = 'One photo only. Choose a file to replace the current cover when you save, or leave it unchanged. Clear removes it.' %}
     {% set cover_max_bytes = 8388608 %}
     {% include "_cover_field.html" %}
     <label>Product title *
